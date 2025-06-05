@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Rhythm Ball Demo</title>
+  <style>
+    body { margin: 0; background: #000; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script src="https://cdn.jsdelivr.net/npm/three/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Controls
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    camera.position.set(0, 5, 12);
+    controls.update();
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(5, 10, 5);
+    scene.add(dirLight);
+
+    // Ground platform (glow platform)
+    const platformGeo = new THREE.CylinderGeometry(2, 2, 0.1, 32);
+    const platformMat = new THREE.MeshStandardMaterial({ color: 0x4444ff, emissive: 0x000000 });
+    const platform = new THREE.Mesh(platformGeo, platformMat);
+    platform.position.y = 0;
+    scene.add(platform);
+
+    // Ball
+    const ballGeo = new THREE.SphereGeometry(0.3, 32, 32);
+    const ballMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const ball = new THREE.Mesh(ballGeo, ballMat);
+    scene.add(ball);
+
+    // Timing
+    let startTime = null;
+    const targetTime = 2000; // 2 seconds to fall
+    const startY = 8;
+    const gravity = 9.8;
+
+    function animate(time) {
+      requestAnimationFrame(animate);
+
+      if (!startTime) startTime = time;
+      const elapsed = time - startTime;
+
+      // Ball falling
+      if (elapsed < targetTime) {
+        const t = elapsed / 1000;
+        const y = startY - 0.5 * gravity * t * t;
+        ball.position.set(0, Math.max(y, 0.3), 0);
+      } else {
+        ball.position.set(0, 0.3, 0);
+
+        // Platform glow trigger
+        const glow = Math.sin((elapsed - targetTime) / 100) * 0.5 + 0.5;
+        platform.material.emissive.setRGB(glow * 0.5, glow * 0.5, glow * 1.0);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>

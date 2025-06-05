@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pose to Stickman Demo</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 20px;
+      margin-top: 20px;
+      font-family: sans-serif;
+    }
+    .canvas-container {
+      position: relative;
+      width: 640px;
+      height: 500px;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      border: 1px solid #ccc;
+    }
+    #controls {
+      margin-bottom: 10px;
+    }
+    pre {
+      width: 400px;
+      height: 500px;
+      overflow: auto;
+      margin: 0;
+      padding: 0;
+      background: #f0f0f0;
+    }
+  </style>
+</head>
+<body>
+  <div>
+    <div id="controls">
+      <input type="file" id="upload" accept="image/*" />
+      <button id="analyze">开始识别</button>
+    </div>
+    <div class="canvas-container">
+      <canvas id="canvasImage" width="640" height="500"></canvas>
+      <canvas id="canvasStickman" width="640" height="500"></canvas>
+    </div>
+  </div>
+  <pre id="output"></pre>
+
+  <script type="module">
+    import { StickmanEditor } from './StickmanEditor.js';
+
+    const canvasImage = document.getElementById('canvasImage');
+    const canvasStickman = document.getElementById('canvasStickman');
+    const ctxImage = canvasImage.getContext('2d');
+    const output = document.getElementById('output');
+    const upload = document.getElementById('upload');
+    const analyze = document.getElementById('analyze');
+
+    const editor = new StickmanEditor(canvasStickman);
+    editor.draw(320, 350);
+
+    // ✅ 监听拖动后更新 pose 数据显示
+    editor.eventEmitter.on("draw", (poseData) => {
+      output.textContent = JSON.stringify(poseData, null, 2);
+    });
+
+    let image = null;
+
+    upload.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      image = new Image();
+      image.onload = () => {
+        ctxImage.clearRect(0, 0, canvasImage.width, canvasImage.height);
+        ctxImage.drawImage(image, 0, 0, canvasImage.width, canvasImage.height);
+      };
+      image.src = URL.createObjectURL(file);
+    });
+
+    const pose = new Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
+    });
+
+    pose.setOptions({
+      staticImageMode: true,
+      modelComplexity: 1,
+      selfieMode: false,
+      minDetectionConfidence: 0.5
+    });
+
+    pose.onResults((results) => {
+      if (results.poseLandmarks) {
+        drawFromPose(results.poseLandmarks);
+      } else {
+        output.textContent = '未检测到姿势';
+      }
+    });
+
+    analyze.addEventListener('click', () => {
+      if (!image) return;
+      pose.send({ image }); // 直接传 HTMLImageElement
+    });
+
+    function midpoint(a, b) {
+      return {
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2
+      };
+    }
+
+    function drawFromPose(poseLandmarks) {
+      const get = name => poseLandmarks[POSE_LANDMARKS[name]];
+      const deg = (a, b) =>
+        (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+
+      const midpoint = (a, b) => ({
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2,
+      });
+
+      const hipCenter = midpoint(get("LEFT_HIP"), get("RIGHT_HIP"));
+      const shoulderCenter = midpoint(get("LEFT_SHOULDER"), get("RIGHT_SHOULDER"));
+      const chestAngle = deg(hipCenter, shoulderCenter);
+
+      const poseData = {
+        hip: 0,
+        chest: chestAngle,
+        neck: chestAngle,
+        head: chestAngle,
+
+        elbowL: deg(get("LEFT_SHOULDER"), get("LEFT_ELBOW")),
+        handL: deg(get("LEFT_ELBOW"), get("LEFT_WRIST")),
+        palmL: deg(get("LEFT_WRIST"), get("LEFT_INDEX") ?? get("LEFT_WRIST")),
+
+        elbowR: deg(get("RIGHT_SHOULDER"), get("RIGHT_ELBOW")),
+        handR: deg(get("RIGHT_ELBOW"), get("RIGHT_WRIST")),
+        palmR: deg(get("RIGHT_WRIST"), get("RIGHT_INDEX") ?? get("RIGHT_WRIST")),
+
+        kneeL: deg(get("LEFT_HIP"), get("LEFT_KNEE")),
+        footL: deg(get("LEFT_KNEE"), get("LEFT_ANKLE")),
+        soleL: deg(get("LEFT_HEEL"), get("LEFT_FOOT_INDEX") ?? get("LEFT_ANKLE")),
+
+        kneeR: deg(get("RIGHT_HIP"), get("RIGHT_KNEE")),
+        footR: deg(get("RIGHT_KNEE"), get("RIGHT_ANKLE")),
+        soleR: deg(get("RIGHT_HEEL"), get("RIGHT_FOOT_INDEX") ?? get("RIGHT_ANKLE")),
+      };
+
+      canvasStickman.getContext('2d').clearRect(0, 0, canvasStickman.width, canvasStickman.height);
+      editor.setSkeletonData(poseData);
+      editor.draw(320, 350);
+    }
+
+    const POSE_LANDMARKS = {
+      NOSE: 0,
+      LEFT_EYE: 2,
+      RIGHT_EYE: 5,
+      LEFT_SHOULDER: 11,
+      RIGHT_SHOULDER: 12,
+      LEFT_ELBOW: 13,
+      RIGHT_ELBOW: 14,
+      LEFT_WRIST: 15,
+      RIGHT_WRIST: 16,
+      LEFT_INDEX: 19,
+      RIGHT_INDEX: 20,
+      LEFT_HIP: 23,
+      RIGHT_HIP: 24,
+      LEFT_KNEE: 25,
+      RIGHT_KNEE: 26,
+      LEFT_ANKLE: 27,
+      RIGHT_ANKLE: 28,
+      LEFT_HEEL: 29,
+      RIGHT_HEEL: 30,
+      LEFT_FOOT_INDEX: 31,
+      RIGHT_FOOT_INDEX: 32
+    };
+  </script>
+</body>
+</html>

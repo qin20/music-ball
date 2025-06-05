@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Pose Sequence Player</title>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin-bottom: 10px;
+    }
+    #controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    pre {
+      max-height: 300px;
+      overflow: auto;
+      background: #f0f0f0;
+      padding: 10px;
+      width: 90%;
+    }
+  </style>
+</head>
+<body>
+  <h2>Pose Sequence Recognition</h2>
+  <div id="controls">
+    <input type="file" id="upload" accept="image/*">
+    <label>Row: <input type="number" id="rows" value="3" min="1" style="width: 50px;"></label>
+    <label>Col: <input type="number" id="cols" value="3" min="1" style="width: 50px;"></label>
+    <button id="analyze">Analyze</button>
+    <button id="play">▶ Play</button>
+  </div>
+  <canvas id="canvas" width="400" height="500"></canvas>
+  <pre id="output">[]</pre>
+
+  <script type="module">
+    import { StickmanEditor } from './StickmanEditor.js';
+
+    const upload = document.getElementById("upload");
+    const rowsInput = document.getElementById("rows");
+    const colsInput = document.getElementById("cols");
+    const analyze = document.getElementById("analyze");
+    const playBtn = document.getElementById("play");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const output = document.getElementById("output");
+
+    const editor = new StickmanEditor(canvas);
+    const offscreen = document.createElement("canvas");
+    const offCtx = offscreen.getContext("2d");
+
+    let sourceImage = null;
+    let poses = [];
+
+    const pose = new Pose({
+      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+
+    pose.setOptions({
+      staticImageMode: true,
+      modelComplexity: 1,
+      selfieMode: false,
+      minDetectionConfidence: 0.5
+    });
+
+    pose.onResults(results => {
+      if (!results.poseLandmarks) {
+        poses.push(null);
+        return;
+      }
+      const get = name => results.poseLandmarks[POSE_LANDMARKS[name]];
+      const deg = (a, b) => (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+      const midpoint = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      const hipCenter = midpoint(get("LEFT_HIP"), get("RIGHT_HIP"));
+      const shoulderCenter = midpoint(get("LEFT_SHOULDER"), get("RIGHT_SHOULDER"));
+      const chestAngle = deg(hipCenter, shoulderCenter);
+
+      const poseData = {
+        hip: 0,
+        chest: chestAngle,
+        neck: chestAngle,
+        head: chestAngle,
+
+        elbowL: deg(get("LEFT_SHOULDER"), get("LEFT_ELBOW")),
+        handL: deg(get("LEFT_ELBOW"), get("LEFT_WRIST")),
+        palmL: deg(get("LEFT_WRIST"), get("LEFT_INDEX") ?? get("LEFT_WRIST")),
+
+        elbowR: deg(get("RIGHT_SHOULDER"), get("RIGHT_ELBOW")),
+        handR: deg(get("RIGHT_ELBOW"), get("RIGHT_WRIST")),
+        palmR: deg(get("RIGHT_WRIST"), get("RIGHT_INDEX") ?? get("RIGHT_WRIST")),
+
+        kneeL: deg(get("LEFT_HIP"), get("LEFT_KNEE")),
+        footL: deg(get("LEFT_KNEE"), get("LEFT_ANKLE")),
+        soleL: deg(get("LEFT_HEEL"), get("LEFT_FOOT_INDEX") ?? get("LEFT_ANKLE")),
+
+        kneeR: deg(get("RIGHT_HIP"), get("RIGHT_KNEE")),
+        footR: deg(get("RIGHT_KNEE"), get("RIGHT_ANKLE")),
+        soleR: deg(get("RIGHT_HEEL"), get("RIGHT_FOOT_INDEX") ?? get("RIGHT_ANKLE"))
+      };
+
+      poses.push(poseData);
+    });
+
+    upload.addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      sourceImage = new Image();
+      sourceImage.onload = () => {
+        offscreen.width = sourceImage.width;
+        offscreen.height = sourceImage.height;
+        offCtx.drawImage(sourceImage, 0, 0);
+      };
+      sourceImage.src = URL.createObjectURL(file);
+    });
+
+    analyze.addEventListener("click", async () => {
+      if (!sourceImage) return;
+      poses = [];
+      const rows = parseInt(rowsInput.value);
+      const cols = parseInt(colsInput.value);
+      const cellW = sourceImage.width / cols;
+      const cellH = sourceImage.height / rows;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const x = c * cellW;
+          const y = r * cellH;
+          const imgData = offCtx.getImageData(x, y, cellW, cellH);
+          const frameCanvas = document.createElement("canvas");
+          frameCanvas.width = cellW;
+          frameCanvas.height = cellH;
+          const frameCtx = frameCanvas.getContext("2d");
+          frameCtx.putImageData(imgData, 0, 0);
+
+          const frameImg = new Image();
+          frameImg.src = frameCanvas.toDataURL();
+          await new Promise(resolve => {
+            frameImg.onload = () => {
+              pose.send({ image: frameImg }).then(resolve);
+            };
+          });
+        }
+      }
+
+      output.textContent = JSON.stringify(poses, null, 2);
+      if (poses.length) editor.drawPose(200, 250, poses[0]);
+    });
+
+    function interpolatePose(p1, p2, t) {
+      const result = {};
+      for (const key in p1) {
+        if (p2.hasOwnProperty(key)) {
+          result[key] = p1[key] + (p2[key] - p1[key]) * t;
+        }
+      }
+      return result;
+    }
+
+    playBtn.addEventListener("click", () => {
+      if (poses.length < 2) return;
+      let frame = 0;
+
+      function playFrame() {
+        const p1 = poses[frame];
+        const p2 = poses[frame + 1];
+        const duration = 500;
+        const start = performance.now();
+
+        function step(now) {
+          const t = Math.min((now - start) / duration, 1);
+          const pose = interpolatePose(p1, p2, t);
+          editor.drawPose(200, 250, pose);
+          if (t < 1) {
+            requestAnimationFrame(step);
+          } else {
+            frame++;
+            if (frame < poses.length - 1) {
+              requestAnimationFrame(playFrame);
+            }
+          }
+        }
+        requestAnimationFrame(step);
+      }
+
+      frame = 0;
+      playFrame();
+    });
+
+    const POSE_LANDMARKS = {
+      NOSE: 0,
+      LEFT_EYE: 2,
+      RIGHT_EYE: 5,
+      LEFT_SHOULDER: 11,
+      RIGHT_SHOULDER: 12,
+      LEFT_ELBOW: 13,
+      RIGHT_ELBOW: 14,
+      LEFT_WRIST: 15,
+      RIGHT_WRIST: 16,
+      LEFT_INDEX: 19,
+      RIGHT_INDEX: 20,
+      LEFT_HIP: 23,
+      RIGHT_HIP: 24,
+      LEFT_KNEE: 25,
+      RIGHT_KNEE: 26,
+      LEFT_ANKLE: 27,
+      RIGHT_ANKLE: 28,
+      LEFT_HEEL: 29,
+      RIGHT_HEEL: 30,
+      LEFT_FOOT_INDEX: 31,
+      RIGHT_FOOT_INDEX: 32
+    };
+  </script>
+</body>
+</html>
