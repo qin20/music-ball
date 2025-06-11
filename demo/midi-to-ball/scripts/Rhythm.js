@@ -72,8 +72,9 @@ export class Rhythm {
     this.events = events;
 
     this.options = {
-      ...options,
+      characterSize: 30,
       speed: options.speed || 0.25,
+      ...options,
     };
 
     this.characterSkin = options.characterSkin || null; // ✅ 加入角色皮肤支持
@@ -90,8 +91,6 @@ export class Rhythm {
 
     this._lastTime = null;
     this._animating = false;
-
-    this.refresh(); // 构造完成后立即生成路径、墙体、小球等
   }
 
   refresh() {
@@ -111,7 +110,6 @@ export class Rhythm {
 
     // 更新相机追踪与渲染
     this.camera.update(this.ball.getPosition());
-    this.render();
   }
 
   setCurrentTime(ms) {

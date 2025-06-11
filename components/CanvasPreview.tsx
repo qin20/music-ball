@@ -1,50 +1,39 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, forwardRef } from 'react';
 import { Rhythm } from '@/scripts/Rhythm';
 import { CanvasResizer } from '@/scripts/CanvasResizer';
 
-interface RhythmEvent {
-  time: number;
-  delta: number;
-  midi: number;
-  pitch: string;
-  solfege: string;
-  duration: number;
-  velocity: number;
-}
-
 interface CanvasPreviewProps {
   resolution: '16:9' | '9:16';
-  events: RhythmEvent[] | null;
-  audioUrl: string | null;
+  events: MidiNote[];
   speed?: number;
   theme?: string;
   characterSize?: number;
   characterSkin?: unknown;
   debug?: boolean;
-  onProgress?: (time: number, noteIndex: number) => void;
+  cameraMode?: 'fit' | 'pixel';
+  onNoteHit?: (index: number) => void;
 }
 
-export default function CanvasPreview({
-  resolution,
-  events,
-  audioUrl,
-  speed = 0.25,
-  theme = 'default',
-  characterSize = 40,
-  characterSkin = null,
-  debug = false,
-  onProgress
-}: CanvasPreviewProps) {
+export default forwardRef(function CanvasPreview(
+  {
+    resolution,
+    events,
+    speed = 0.25,
+    theme = 'default',
+    characterSize = 40,
+    characterSkin = null,
+    debug = false,
+    cameraMode = 'fit',
+    onNoteHit,
+  }: CanvasPreviewProps,
+  ref
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const simulatorRef = useRef<Rhythm | null>(null);
-  const rafRef = useRef<number>(0);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const rhythmRef = useRef<Rhythm | null>(null);
 
   useEffect(() => {
-    if (!events || events.length === 0) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -57,69 +46,74 @@ export default function CanvasPreview({
       }),
     });
 
+    return () => resizer.disableAutoResize();
+  }, [resolution]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !events || events.length === 0) return;
+
+    console.log('重绘');
+
     const rhythm = new Rhythm(canvas, events, {
       speed,
       theme,
       characterSize,
       characterSkin,
+      cameraMode,
       debug,
-      ballStyle(
+
+      ballStyle: (
         ctx: CanvasRenderingContext2D,
         x: number,
         y: number,
         r: number
-      ) {
+      ) => {
+        ctx.save();
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = '#000';
         ctx.shadowColor = '#000';
         ctx.shadowBlur = 12;
         ctx.fill();
+        ctx.restore();
       },
-      drawTrail(
+
+      drawTrail: (
         ctx: CanvasRenderingContext2D,
         p: { x: number; y: number; life: number },
         radius: number
-      ) {
+      ) => {
+        ctx.save();
         ctx.beginPath();
         ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255, 255, 255, ${p.life})`;
         ctx.fill();
+        ctx.restore();
       },
+
       wallColor: '#333',
       glowColor: '#fff',
-      background: '#fff'
+      background: '#fff',
     });
 
-    simulatorRef.current = rhythm;
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [events, resolution, speed, theme, characterSize, characterSkin, debug]);
+    // ✅ 撞击时触发回调
+    rhythm.walls.on('hit', (_seg, _wall, i) => {
+      onNoteHit?.(i);
+    });
 
-  const play = () => {
-    if (!audioUrl || !audioRef.current || !simulatorRef.current) return;
-    audioRef.current.currentTime = 0;
-    audioRef.current.play();
-    setIsPlaying(true);
-    tick();
-  };
+    rhythmRef.current = rhythm;
 
-  const pause = () => {
-    audioRef.current?.pause();
-    cancelAnimationFrame(rafRef.current);
-    setIsPlaying(false);
-  };
+    return () => {
+      rhythmRef.current = null;
+    };
+  }, [events, speed, theme, characterSize, characterSkin, cameraMode, debug, onNoteHit]);
 
-  const tick = () => {
-    if (!isPlaying || !simulatorRef.current || !audioRef.current) return;
-
-    const elapsed = audioRef.current.currentTime * 1000;
-    const noteIndex = events!.findIndex(e => e.time > elapsed);
-    const currentIndex = noteIndex <= 0 ? 0 : noteIndex - 1;
-
-    if (onProgress) onProgress(elapsed, currentIndex);
-    simulatorRef.current.setCurrentTime(elapsed);
-    rafRef.current = requestAnimationFrame(tick);
-  };
+  useImperativeHandle(ref, () => ({
+    seekTo: (time: number) => {
+      rhythmRef.current?.setCurrentTime(time);
+    },
+  }));
 
   return (
     <div className="w-full h-full flex items-center justify-center bg-gray-50 relative">
@@ -127,22 +121,6 @@ export default function CanvasPreview({
         ref={canvasRef}
         className="bg-white shadow-2xl rounded-xl"
       />
-      {audioUrl && (
-        <audio
-          ref={audioRef}
-          src={audioUrl}
-          preload="auto"
-          crossOrigin="anonymous"
-          hidden
-        />
-      )}
-      <div className="absolute top-4 left-4 z-10">
-        {!isPlaying ? (
-          <button onClick={play} className="px-4 py-2 bg-green-500 text-white rounded">播放</button>
-        ) : (
-          <button onClick={pause} className="px-4 py-2 bg-yellow-500 text-white rounded">暂停</button>
-        )}
-      </div>
     </div>
   );
-}
+});

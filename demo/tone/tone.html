@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>MetalSynth 调试器 + MIDI 播放</title>
+  <script src="./lib/Tone.js"></script>
+  <script src="./lib/Midi.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .slider-group { margin-bottom: 12px; }
+    label { display: inline-block; width: 150px; }
+    input[type=range] { width: 300px; }
+    #playBtn { margin-top: 20px; padding: 8px 16px; }
+  </style>
+</head>
+<body>
+  <h1>MetalSynth 参数调试器（高脚杯敲击音）</h1>
+  <div id="sliders"></div>
+  <button id="playBtn">播放 MIDI</button>
+
+  <script>
+    // 初始化单音 MetalSynth
+    const synth = new Tone.MetalSynth({
+      frequency: 300,
+      harmonicity: 5.5,
+      modulationIndex: 32,
+      resonance: 4000,
+      octaves: 2.5,
+      envelope: { attack: 0.001, decay: 1.4, sustain: 0.0, release: 1.4 }
+    }).toDestination();
+
+    // 参数定义
+    const params = {
+      frequency: { min: 50, max: 2000 },
+      harmonicity: { min: 0.1, max: 10 },
+      modulationIndex: { min: 1, max: 100 },
+      resonance: { min: 0, max: 7000 },
+      octaves: { min: 0, max: 8 },
+      attack: { min: 0.0001, max: 1 },
+      decay: { min: 0.01, max: 5 },
+      sustain: { min: 0, max: 1 },
+      release: { min: 0.01, max: 5 }
+    };
+
+    const slidersDiv = document.getElementById('sliders');
+    const envelopeDefaults = synth.get().envelope;
+
+    // frequency 单独提取
+    const initialValues = {
+      frequency: synth.frequency?.value ?? 0,
+      harmonicity: synth.harmonicity,
+      modulationIndex: synth.modulationIndex,
+      resonance: synth.resonance,
+      octaves: synth.octaves,
+      ...envelopeDefaults
+    };
+
+    Object.entries(params).forEach(([key, { min, max }]) => {
+      const initial = parseFloat(initialValues[key] ?? 0);
+      const isEnv = ['attack', 'decay', 'sustain', 'release'].includes(key);
+
+      const container = document.createElement('div');
+      container.className = 'slider-group';
+      container.innerHTML = `
+        <label>${key}</label>
+        <input type="range" min="${min}" max="${max}" step="${(max - min) / 200}" value="${initial}">
+        <span>${initial.toFixed(3)}</span>
+      `;
+      slidersDiv.appendChild(container);
+
+      const input = container.querySelector('input');
+      const display = container.querySelector('span');
+
+      input.addEventListener('input', e => {
+        const v = parseFloat(e.target.value);
+        display.textContent = v.toFixed(3);
+        if (key === 'frequency') {
+          synth.frequency.value = v;
+        } else if (synth[key] instanceof Tone.Param) {
+          synth[key].value = v;
+        } else if (key in synth) {
+          synth[key] = v;
+        } else {
+          synth.envelope[key] = v;
+        }
+      });
+    });
+
+    // MIDI 播放逻辑
+    let midi = null;
+    let part = null;
+    const midiPath = './assets/timeback_2025-05-27_15-12-54.mid';
+
+    Midi.fromUrl(midiPath).then(m => {
+      midi = m;
+
+      const notes = [];
+      midi.tracks.forEach(track => {
+        track.notes.forEach(note => {
+          notes.push({
+            time: note.time,
+            note: note.name,
+            duration: note.duration,
+            velocity: note.velocity
+          });
+        });
+      });
+
+      notes.sort((a, b) => a.time - b.time);
+
+      // 去重：只保留每个时间戳的第一个 note
+      const filtered = [];
+      let lastTime = -1;
+      for (const n of notes) {
+        if (n.time !== lastTime) {
+          filtered.push(n);
+          lastTime = n.time;
+        }
+      }
+
+      part = new Tone.Part((time, ev) => {
+        synth.triggerAttackRelease(ev.note, ev.duration, time, ev.velocity);
+      }, filtered).start(0);
+
+      part.loop = false;
+    });
+
+    document.getElementById('playBtn').addEventListener('click', async () => {
+      await Tone.start();
+      if (!midi || !part) return alert('MIDI 未加载完毕');
+      Tone.Transport.cancel();
+      Tone.Transport.start("+0.5");
+    });
+  </script>
+</body>
+</html>

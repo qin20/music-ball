@@ -72,7 +72,6 @@
  * ============================================================
  */
 
-
 import { RhythmPathPlanner } from './RhythmPathPlanner.Stack.js';
 
 export class RhythmWalls {
@@ -85,7 +84,6 @@ export class RhythmWalls {
 
     this.walls = [];
     this.path = [];
-    this._activeGlowCount = 0;
   }
 
   _compressEvents(events, minDelta) {
@@ -131,9 +129,7 @@ export class RhythmWalls {
 
   calculateWalls(center, events, speed) {
     const minDelta = this.options.minWallDelta ?? 80;
-    console.log(events);
     const filteredEvents = this._compressEvents(events, minDelta);
-    console.log(filteredEvents);
     const planner = new RhythmPathPlanner(center, filteredEvents, speed, this.options);
     const solution = planner.generate();
 
@@ -233,8 +229,8 @@ export class RhythmWalls {
     ctx.fillRect(x, y, width, height);
 
     // Step 2: 抠出通道路径
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.fillStyle = background;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = this.bgPattern || background;
     for (const seg of this.segments) {
       const { startPos, endPos } = seg;
 
@@ -252,9 +248,9 @@ export class RhythmWalls {
     }
 
     // Step 3: 用纹理或背景色补上抠出的通道
-    ctx.globalCompositeOperation = 'destination-over';
-    ctx.fillStyle = this.bgPattern || background;
-    ctx.fillRect(x, y, width, height);
+    // ctx.globalCompositeOperation = 'destination-over';
+    // ctx.fillStyle = this.bgPattern || background;
+    // ctx.fillRect(x, y, width, height);
 
     ctx.restore();
   }
@@ -290,9 +286,5 @@ export class RhythmWalls {
 
   setBgPattern(pattern) {
     this.bgPattern = pattern;
-  }
-
-  get activeGlowCount() {
-    return this._activeGlowCount;
   }
 }
