@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { getMainTrack, getTrackEvents } from '@/lib/Midi'
+import { getMainTrack, serializeTrack } from '@/lib/Midi'
 import { INSTRUMENTS } from '@/lib/INSTRUMENTS'
 import Soundfont from 'soundfont-player'
 import { Label } from '@/components/ui/label'
@@ -43,7 +43,7 @@ export default function SoundfontPage() {
     const file = e.target.files?.[0]
     if (!file) return
     const track = await getMainTrack(file);
-    const notes = getTrackEvents(track);
+    const notes = serializeTrack(track);
     setNotes(notes)
     currentIndex.current = 0
   }

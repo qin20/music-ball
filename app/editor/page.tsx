@@ -1,32 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import TopToolbar from '@/components/TopToolbar';
 import RightSidebar from '@/components/RightSidebar';
-import NotesSidebar from '@/components/NotesSidebar';
 import { getOrReplaceBank } from '@/lib/createSynthBank';
 import { createToneTransportPlayer } from '@/lib/createToneTransportPlayer';
 import { createRhythmInstance, disposeRhythmInstance } from '@/lib/createRhythmInstance';
 import { CanvasResizer } from '@/scripts/CanvasResizer';
 import * as Tone from 'tone';
+import { MidiNoteEditor } from '@/components/MidiNoteEditor/Eidtor';
+import { MidiPlayer } from '@/lib/MidiPlayer';
 
 
 export default function EditorPage() {
-  const [originalEvents, setOriginalEvents] = useState<MidiNote[]>([]);
-  const [events, setEvents] = useState<MidiNote[]>([]);
-  const [disabledIndexes, setDisabledIndexes] = useState<Set<number>>(new Set());
+  const [notes, setNotes] = useState<SerializedNote[]>([]);
+  const [editorHeight, setEditorHeight] = useState(240);
 
   const [speed, setSpeed] = useState(0.25);
-  const [theme, setTheme] = useState('default');
   const [characterSize, setCharacterSize] = useState(30);
   const [resolution, setResolution] = useState<'16:9' | '9:16'>('9:16');
   const [cameraMode, setCameraMode] = useState<'fit' | 'pixel'>('fit');
-
-  const [synthType, setSynthType] = useState<SynthType>('metal');
-  const [volume, setVolume] = useState(0);
-  const [transpose, setTranspose] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [startOffset, setStartOffset] = useState(0); // 支持暂停续播
 
   const rhythmRef = useRef<ReturnType<typeof createRhythmInstance> | null>(null);
   const synthRef = useRef<ReturnType<typeof getOrReplaceBank> | null>(null);
@@ -50,19 +42,17 @@ export default function EditorPage() {
   }, [resolution]);
 
   useEffect(() => {
-    if (!events || !events.length || !canvasRef.current) {
+    if (!notes || !notes.length || !canvasRef.current) {
       return;
     }
     disposeRhythmInstance();
     rhythmRef.current = createRhythmInstance({
       canvas: canvasRef.current,
-      events,
+      events: notes,
     });
-    setIsPlaying(false);
-    setStartOffset(0);
     rhythmRef.current.refresh();
     rhythmRef.current.render();
-  }, [events]);
+  }, [notes]);
 
   // 重绘
   useEffect(() => {
@@ -76,80 +66,8 @@ export default function EditorPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!isPlaying) return;
-    let rafId: number;
-
-    const tick = () => {
-      const ms = Tone.Transport.seconds * 1000;
-      rhythmRef.current?.setCurrentTime(ms);
-      rafId = requestAnimationFrame(tick);
-    };
-
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, [isPlaying]);
-
-  const handleStartPlayback = async () => {
-    await Tone.start();
-
-    const bank = getOrReplaceBank(synthRef, synthType, { volume, transpose });
-
-    if (playerRef.current) {
-      playerRef.current.dispose();
-    }
-
-    const player = createToneTransportPlayer({
-      events,
-      synth: bank.mainSynth,
-      transpose,
-    });
-
-    player.start(startOffset);
-    playerRef.current = player;
-
-    setIsPlaying(true);
-  };
-
-  const handleStopPlayback = () => {
-    const ms = Tone.Transport.seconds * 1000;
-    setStartOffset(ms);
-    playerRef.current?.pause();
-    setIsPlaying(false);
-  };
-
-  const handleMidiFileChange = (parsed: MidiNote[]) => {
-    console.log(parsed);
-    setOriginalEvents(parsed);
-    setEvents(parsed);
-    setDisabledIndexes(new Set());
-    setStartOffset(0);
-  };
-
-  const handleToggleDisable = (index: number, disable: boolean) => {
-    setDisabledIndexes(prev => {
-      const newSet = new Set(prev);
-      if (disable) newSet.add(index);
-      else newSet.delete(index);
-      const active = originalEvents.filter((_, i) => !newSet.has(i));
-      setEvents(active);
-      return newSet;
-    });
-  };
-
-  const handleSeek = (time: number) => {
-    rhythmRef.current?.setCurrentTime(time);
-    setStartOffset(time);
-    Tone.Transport.seconds = time / 1000;
-  };
-
-  const handlePreview = async (index: number) => {
-    const e = originalEvents[index];
-    if (!e) return;
-    await Tone.start();
-    const bank = getOrReplaceBank(synthRef, synthType, { volume, transpose });
-    const note = Tone.Frequency(e.midi + transpose, 'midi').toNote();
-    bank.mainSynth.triggerAttackRelease(note, e.duration / 1000);
+  const handleMidiFileChange = (parsed: SerializedNote[]) => {
+    setNotes(parsed);
   };
 
   const toggleCameraMode = () => {
@@ -164,15 +82,6 @@ export default function EditorPage() {
     });
   };
 
-  const handleExport = () => console.log('导出中...');
-  const handleReset = () => window.location.reload();
-
-  useEffect(() => {
-    if (!synthRef.current) return;
-    synthRef.current.setVolume(volume);
-    synthRef.current.setTranspose(transpose);
-  }, [volume, transpose]);
-
   useEffect(() => {
     return () => {
       Tone.Transport.stop();
@@ -184,17 +93,8 @@ export default function EditorPage() {
 
   return (
     <div className="flex flex-col h-screen">
-      <TopToolbar onExport={handleExport} onReset={handleReset} />
-
+      {/* 上半部分内容区域：画布 + Sidebar */}
       <div className="flex flex-1 overflow-hidden">
-        <NotesSidebar
-          events={originalEvents}
-          disabledIndexes={disabledIndexes}
-          onToggleDisable={handleToggleDisable}
-          onSeek={handleSeek}
-          onPreview={handlePreview}
-        />
-
         <div className="flex-1 bg-gray-50 relative">
           <div className="w-full h-full flex items-center justify-center bg-gray-50 relative">
             <canvas
@@ -202,34 +102,62 @@ export default function EditorPage() {
               className="bg-white shadow-2xl rounded-xl"
             />
           </div>
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
-            {!isPlaying ? (
-              <button onClick={handleStartPlayback} className="px-4 py-2 bg-green-500 text-white rounded shadow">播放</button>
-            ) : (
-              <button onClick={handleStopPlayback} className="px-4 py-2 bg-yellow-500 text-white rounded shadow">暂停</button>
-            )}
-          </div>
         </div>
 
         <RightSidebar
-          onMidiFileChange={handleMidiFileChange}
+          onNotesChange={handleMidiFileChange}
           speed={speed}
           onSpeedChange={setSpeed}
-          theme={theme}
-          onThemeChange={setTheme}
           characterSize={characterSize}
           onCharacterSizeChange={setCharacterSize}
           resolution={resolution}
           onResolutionChange={setResolution}
           cameraMode={cameraMode}
           onCameraModeToggle={toggleCameraMode}
-          synthType={synthType}
-          onSynthTypeChange={setSynthType}
-          volume={volume}
-          onVolumeChange={setVolume}
-          transpose={transpose}
-          onTransposeChange={setTranspose}
         />
+      </div>
+
+      {/* MIDI 编辑器（带可拖动顶部） */}
+      <div
+        style={{ height: editorHeight }}
+        className="relative bg-white border-t border-gray-300"
+      >
+        {/* 拖动条 */}
+        <div
+          className="absolute top-0 left-0 right-0 h-[6px] cursor-row-resize bg-gray-200 z-10"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            const startY = e.clientY;
+            const startHeight = editorHeight;
+
+            const onMouseMove = (moveEvent: MouseEvent) => {
+              const deltaY = moveEvent.clientY - startY;
+              const newHeight = Math.min(Math.max(120, startHeight - deltaY), 600);
+              setEditorHeight(newHeight);
+            };
+
+            const onMouseUp = () => {
+              window.removeEventListener('mousemove', onMouseMove);
+              window.removeEventListener('mouseup', onMouseUp);
+            };
+
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+          }}
+        />
+
+        {/* 内容区 */}
+        <div className="h-full overflow-hidden pt-[6px]">
+          <MidiNoteEditor
+            notes={notes}
+            onNotesChange={setNotes}
+            onTimeChange={(t) => {
+              rhythmRef.current?.setCurrentTime(t);
+              MidiPlayer.pause();
+              MidiPlayer.seek(t);
+            }}
+          />
+        </div>
       </div>
     </div>
   );

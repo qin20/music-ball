@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { getMainTrack, getTrackEvents } from '@/lib/Midi';
+import { getMainTrack, serializeTrack } from '@/lib/Midi';
 
 type SynthType = 'fmsynth' | 'amsynth' | 'duosynth' | 'metalsynth' | 'membranesynth';
 
@@ -175,7 +175,7 @@ export default function AllTonePage() {
     if (!file) return;
 
     const track = await getMainTrack(file);
-    const notes = getTrackEvents(track);
+    const notes = serializeTrack(track);
     notes.sort((a, b) => a.time - b.time);
 
     // ✅ 清空旧合成器与 Part

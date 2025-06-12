@@ -2,7 +2,7 @@ import { Rhythm } from '@/scripts/Rhythm';
 
 interface CreateRhythmOptions {
   canvas: HTMLCanvasElement;
-  events: MidiNote[];
+  events: SerializedNote[];
   options?: ConstructorParameters<typeof Rhythm>[2];
   onHit?: (index: number) => void;
 }

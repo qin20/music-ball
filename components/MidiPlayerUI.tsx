@@ -3,12 +3,12 @@
 import * as Tone from 'tone';
 import { useEffect, useRef, useState } from 'react';
 import { MidiPlayer } from '@/lib/MidiPlayer'; // ✅ 使用单例
-import { SynthType, MidiNote } from '@/lib/MidiPlayerInstance'; // ✅ 使用单例
+import { SynthType } from '@/lib/MidiPlayerInstance'; // ✅ 使用单例
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { getMainTrack, getTrackEvents } from '@/lib/Midi'
+import { getMainTrack, serializeTrack } from '@/lib/Midi'
 
 const synthTypes: { label: string; value: SynthType }[] = [
   { label: 'FMSynth（金属水杯）', value: 'fmsynth' },
@@ -36,7 +36,7 @@ type ParamKey = keyof typeof defaultValues;
 export default function MidiPlayerUI({
   onNotesChange
 }: {
-  onNotesChange?: (notes: MidiNote[]) => void;
+  onNotesChange?: (notes: SerializedNote[]) => void;
 }) {
   const [synthType, setSynthType] = useState<SynthType>('fmsynth');
   const [params, setParams] = useState({ ...defaultValues });
@@ -44,6 +44,15 @@ export default function MidiPlayerUI({
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    MidiPlayer.init({
+      synthType,
+      volume: 1,
+      transpose,
+      params,
+    });
+  }, []);
 
   useEffect(() => {
     let raf: number;
@@ -81,7 +90,7 @@ export default function MidiPlayerUI({
     setIsPlaying(false);
 
     const track = await getMainTrack(file);
-    const notes = getTrackEvents(track);
+    const notes = serializeTrack(track);
 
     MidiPlayer.pause();
     MidiPlayer.init({
@@ -147,7 +156,7 @@ export default function MidiPlayerUI({
               min={-24}
               max={24}
               step={1}
-              onValueChange={([val]) => setTranspose(val)}
+              onValueChange={([val]) => handleTransposeChange(val)}
             />
 
           </div>
@@ -239,6 +248,7 @@ export default function MidiPlayerUI({
           onValueChange={([val]) => {
             isDraggingRef.current = true;
             setProgress(val);
+            MidiPlayer.seek(val * MidiPlayer.getDuration());
           }}
           onValueCommit={([val]) => {
             isDraggingRef.current = false;

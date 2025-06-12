@@ -19,7 +19,7 @@ interface RightSidebarProps {
   onResolutionChange: (value: '16:9' | '9:16') => void;
   cameraMode: 'fit' | 'pixel';
   onCameraModeToggle: () => void;
-  onNotesChange: (events: MidiNote[]) => void;
+  onNotesChange: (events: SerializedNote[]) => void;
 }
 
 export default function RightSidebar({

@@ -4,20 +4,7 @@ import { Midi, Track } from '@tonejs/midi'
  *                     🔠 Type Definitions
  * ========================================================= */
 
-export type SerializedNote = {
-  originIndex: number;
-  durationTicks: number
-  midi: number
-  noteOffVelocity: number
-  ticks: number
-  velocity: number
-  bars: number
-  duration: number
-  name: string
-  octave: number
-  pitch: string
-  time: number
-}
+
 
 /* =========================================================
  *                 🎹 Helper: MIDI → 音名 / 唱名
@@ -28,30 +15,31 @@ const SOLFEGE_MAP: Record<string,string> = {
   C:'do','C#':'do#',D:'re','D#':'re#',E:'mi',F:'fa','F#':'fa#',
   G:'sol','G#':'sol#',A:'la','A#':'la#',B:'ti'
 }
-function midiToNames(midi: number) {
+export function midiToNames(midi: number) {
   const note = NOTE_NAMES[midi % 12]
   const octave = Math.floor(midi / 12) - 1
   return { pitch: `${note}${octave}`, solfege: SOLFEGE_MAP[note] }
 }
-
+export function midiToNoteName(midi: number) {
+  return NOTE_NAMES[midi % 12] + (Math.floor(midi / 12) - 1);
+};
 /* =========================================================
  *           📅  Parse & Serialize MIDI  Tracks
  * ========================================================= */
 
 export function serializeNotes(notes: Track['notes']): SerializedNote[] {
-  return notes.map((n, i) => ({
-    originIndex   : i,
-    durationTicks : n.durationTicks,
+  return notes.map((n) => ({
+    time          : n.time,
+    name          : n.name,
     midi          : n.midi,
+    duration      : n.duration,
+    velocity      : n.velocity,
+    durationTicks : n.durationTicks,
     noteOffVelocity: n.noteOffVelocity,
     ticks         : n.ticks,
-    velocity      : n.velocity,
     bars          : (n.bars as unknown) as number,
-    duration      : n.duration,
-    name          : n.name,
     octave        : n.octave,
     pitch         : n.pitch,
-    time          : n.time
   }))
 }
 
@@ -116,8 +104,8 @@ export function filterDenseNotes(ns:SerializedNote[],minDelta=0.12){
   return res
 }
 
-export const normalizeDurations=(ns:SerializedNote[],dMs=250)=>
-  ns.map(n=>({...n,duration:dMs/1000}))
+export const normalizeDurations=(ns:SerializedNote[],seconds:Seconds=1)=>
+  ns.map(n=>({...n,duration:Math.max(seconds, n.duration)}))
 
 export function limitLongGaps(
   ns: SerializedNote[],
@@ -151,7 +139,7 @@ export function parseMidiNoteFromNotes(ns: SerializedNote[]): MidiNote[] {
     const delta = i===0 ? start : start - evts[i-1].time
     cur += delta
     evts.push({ delta, time:cur, midi:n.midi, ...midiToNames(n.midi),
-      duration:n.duration*1000, velocity:n.velocity, originIndex: n.originIndex })
+      duration:n.duration*1000, velocity:n.velocity })
   })
   return evts
 }
@@ -173,26 +161,27 @@ export async function getMainTrack(input: File|ArrayBuffer) {
  * @param disabledIndexes
  * @returns
  */
-export function getTrackEvents(track: Track, disabledIndexes: number[] = []): MidiNote[] {
-  let notes    = serializeNotes(track.notes)
+export function serializeTrack(track: Track): SerializedNote[] {
+  // eslint-disable-next-line
+  let notes = serializeNotes(track.notes)
 
-  notes = notes.filter((n, i) => !disabledIndexes.includes(i));
+  // notes = notes.filter((n, i) => !disabledIndexes.includes(i));
 
-  console.log('origin', parseMidiNoteFromNotes(notes))
+  // console.log(parseMidiNoteFromNotes(notes))
 
-  notes = filterUnrelatedNotes(notes, {
-    minVelocity: .3,
-    pitchRange: [-Infinity, Infinity],
-    excludeNames: [],
-  })
+  // notes = filterUnrelatedNotes(notes, {
+  //   minVelocity: .3,
+  //   pitchRange: [-Infinity, Infinity],
+  //   excludeNames: [],
+  // })
   // notes = mergeChordsToSingleNotes(notes, 0.03)
   // notes = filterDenseNotes(notes, 0.12)
-  // notes = normalizeDurations(notes, 250)
-  notes = limitLongGaps(notes, 1500)
+  // notes = normalizeDurations(notes, .5)
+  // notes = limitLongGaps(notes, 1500)
 
+  // const events = parseMidiNoteFromNotes(notes);
+  // console.log(events);
 
-  const events = parseMidiNoteFromNotes(notes);
-  console.log(events);
-
-  return events;
+  console.log(notes);
+  return notes;
 }

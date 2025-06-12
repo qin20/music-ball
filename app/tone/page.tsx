@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { getMainTrack, getTrackEvents } from '@/lib/Midi';
+import { getMainTrack, serializeTrack } from '@/lib/Midi';
 
 const paramMeta = {
   harmonicity: { min: 0.1, max: 20 },
@@ -132,7 +132,7 @@ export default function TonePage() {
     if (!file) return;
 
     const track = await getMainTrack(file);
-    const notes = getTrackEvents(track);
+    const notes = serializeTrack(track);
     notes.sort((a, b) => a.time - b.time);
     // let lastTime = -1;
     for (const n of notes) {
