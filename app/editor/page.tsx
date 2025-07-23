@@ -1,95 +1,148 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import RightSidebar from '@/components/RightSidebar';
-import { getOrReplaceBank } from '@/lib/createSynthBank';
-import { createToneTransportPlayer } from '@/lib/createToneTransportPlayer';
-import { createRhythmInstance, disposeRhythmInstance } from '@/lib/createRhythmInstance';
-import { CanvasResizer } from '@/scripts/CanvasResizer';
-import * as Tone from 'tone';
-import { MidiNoteEditor } from '@/components/MidiNoteEditor/Eidtor';
-import { MidiPlayer } from '@/lib/MidiPlayer';
+import { MouseEventHandler, useEffect, useRef, useState } from 'react';
+import { CanvasResizer } from '@/lib/rhythmBall/CanvasResizer';
+import { useStore } from '@/hooks/useStore';
+import { MidiPlayer, MidiPlayerConfigEvents } from '@/lib/MidiPlayer';
+import { MidiNoteEditor } from '@/components/MidiNoteEditor/MidiNoteEditor';
+import { RightSidebar } from '@/components/RightSidebar';
+import { Rhythm } from '@/lib/rhythmBall/Rhythm';
+import { TextureManager } from '@/lib/rhythmBall/TextureManager';
+import { compressNotes } from '@/lib/Midi';
+import { ResolutionValue } from '@/components/MidiNoteEditor/ResolutionSelector';
+import { CameraMode, CameraModes } from '@/lib/rhythmBall/Camera';
+import { useRhythmInstance } from '@/hooks/useRhythmInstance';
 
+
+/**
+ * 根据音符最小时间间隔和最小期望位移距离，计算推荐速度
+ * @param notes 音符数组（需已排序）
+ * @param minDistance 最小运动距离（单位：px）
+ * @returns 推荐速度（单位：px/ms）
+ */
+export function calculateRecommendedSpeedByDistance(
+  notes: SerializedNote[],
+  minDistance: number
+): number {
+  if (notes.length < 2) return 100;
+
+  let minDelta = Infinity;
+  for (let i = 1; i < notes.length; i++) {
+    if (notes[i].disabled || notes[i - 1].disabled) continue;
+
+    const delta = notes[i].time - notes[i - 1].time;
+    if (delta > 0 && delta < minDelta) {
+      minDelta = delta;
+    }
+  }
+
+  console.log(minDelta, minDistance, minDelta > 0 ? minDistance / minDelta : 100);
+  return minDelta > 0 ? minDistance / minDelta : 100;
+}
 
 export default function EditorPage() {
-  const [notes, setNotes] = useState<SerializedNote[]>([]);
-  const [editorHeight, setEditorHeight] = useState(240);
+  const { value: notes, enableShortcuts, disableShortcuts } = useStore<SerializedNote[]>('notes', []);
+  const { value: resolution } = useStore<ResolutionValue>('resolution', '9:16');
+  const { value: cameraMode } = useStore<CameraMode>('cameraMode', CameraModes.ALL);
 
+  const [editorHeight, setEditorHeight] = useState(240);
   const [speed, setSpeed] = useState(0.25);
   const [characterSize, setCharacterSize] = useState(30);
-  const [resolution, setResolution] = useState<'16:9' | '9:16'>('9:16');
-  const [cameraMode, setCameraMode] = useState<'fit' | 'pixel'>('fit');
 
-  const rhythmRef = useRef<ReturnType<typeof createRhythmInstance> | null>(null);
-  const synthRef = useRef<ReturnType<typeof getOrReplaceBank> | null>(null);
+  const { get: getRhythm, refresh, set: setRhythm } = useRhythmInstance();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const playerRef = useRef<ReturnType<typeof createToneTransportPlayer> | null>(null);
+  const resizerRef = useRef<CanvasResizer>(null);
+
+  useEffect(() => {
+    enableShortcuts();
+    return () => disableShortcuts();
+  }, [enableShortcuts, disableShortcuts]);
+
+  useEffect(() => {
+    const handleToggle: MidiPlayerConfigEvents['progress'] = (percent, current) => {
+      getRhythm()?.seekTo(current);
+    };
+    MidiPlayer.get().on('progress', handleToggle);
+    return () => MidiPlayer.get().off('progress', handleToggle);
+  }, [getRhythm]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    const resizer = new CanvasResizer(canvas);
-    resizer.enableAutoResize({
+    const resizer = resizerRef.current;
+    if (!resizer) {
+      resizerRef.current = new CanvasResizer(canvas);
+    }
+    resizerRef.current?.enableAutoResize({
       mode: resolution === '9:16' ? [9, 16] : [16, 9],
       getContainerSize: () => ({
-        width: window.innerWidth,
-        height: window.innerHeight - 100,
+        width: canvas?.parentElement?.offsetWidth || 0,
+        height: canvas?.parentElement?.offsetHeight || 0,
       }),
-    });
-
-    return () => resizer.disableAutoResize();
-  }, [resolution]);
-
-  useEffect(() => {
-    if (!notes || !notes.length || !canvasRef.current) {
-      return;
-    }
-    disposeRhythmInstance();
-    rhythmRef.current = createRhythmInstance({
-      canvas: canvasRef.current,
-      events: notes,
-    });
-    rhythmRef.current.refresh();
-    rhythmRef.current.render();
-  }, [notes]);
-
-  // 重绘
-  useEffect(() => {
-    if (!rhythmRef.current) {
-      return;
-    }
-    rhythmRef.current.options = {
-      ...rhythmRef.current.options,
-      speed,
-      characterSize,
-    };
-  }, []);
-
-  const handleMidiFileChange = (parsed: SerializedNote[]) => {
-    setNotes(parsed);
-  };
-
-  const toggleCameraMode = () => {
-    setCameraMode((prev) => {
-      const mode = prev === 'fit' ? 'pixel' : 'fit';
-      if (rhythmRef.current) {
-        rhythmRef.current.camera.fitToPath(rhythmRef.current.walls.getPath());
-        rhythmRef.current.camera.setMode(mode);
-        rhythmRef.current.render();
+      onResize: (cw: number, ch: number) => {
+        getRhythm()?.camera.setMargin(cw * 0.15, ch * 0.15);
+        getRhythm()?.render();
       }
-      return mode;
     });
-  };
+
+    return () => resizerRef.current?.disableAutoResize();
+  }, [resolution, getRhythm]);
 
   useEffect(() => {
-    return () => {
-      Tone.Transport.stop();
-      Tone.Transport.cancel();
-      playerRef.current?.dispose();
-      synthRef.current?.dispose();
+    const run = async () => {
+      const _compressNotes = compressNotes(notes, 0.05);
+      if (!_compressNotes || !_compressNotes.length || !canvasRef.current) {
+        return;
+      }
+      console.log(_compressNotes);
+      const characterSize = 30;
+      const rhythm = new Rhythm(canvasRef.current, _compressNotes, {
+        background: '#fff',
+        characterSize,
+        minDistance: characterSize * 2,
+        characterSkin: null,
+        pathWidth: characterSize,
+        speed: calculateRecommendedSpeedByDistance(_compressNotes, characterSize * 1.1),
+        // speed: 100,
+        wallColor: '#222',
+        wallLength: characterSize,
+        wallThickness: characterSize / 4,
+      });
+      setRhythm(rhythm);
+      await refresh();
+      TextureManager.loadPattern('/assets/textures/bg.png').then((pattern) => {
+        getRhythm()?.setBgPattern(pattern); // 动态切换
+      });
     };
-  }, []);
+
+    run();
+  }, [notes, getRhythm, refresh, setRhythm]);
+
+  useEffect(() => {
+    getRhythm()?.camera.setMode(cameraMode);
+    getRhythm()?.render();
+  }, [cameraMode, getRhythm]);
+
+  const handleResize: MouseEventHandler<HTMLDivElement> = (e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = editorHeight;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const newHeight = Math.min(Math.max(120, startHeight - deltaY), 600);
+      setEditorHeight(newHeight);
+      resizerRef.current?.resize();
+    };
+
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
 
   return (
     <div className="flex flex-col h-screen">
@@ -105,15 +158,10 @@ export default function EditorPage() {
         </div>
 
         <RightSidebar
-          onNotesChange={handleMidiFileChange}
           speed={speed}
           onSpeedChange={setSpeed}
           characterSize={characterSize}
           onCharacterSizeChange={setCharacterSize}
-          resolution={resolution}
-          onResolutionChange={setResolution}
-          cameraMode={cameraMode}
-          onCameraModeToggle={toggleCameraMode}
         />
       </div>
 
@@ -125,36 +173,16 @@ export default function EditorPage() {
         {/* 拖动条 */}
         <div
           className="absolute top-0 left-0 right-0 h-[6px] cursor-row-resize bg-gray-200 z-10"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            const startY = e.clientY;
-            const startHeight = editorHeight;
-
-            const onMouseMove = (moveEvent: MouseEvent) => {
-              const deltaY = moveEvent.clientY - startY;
-              const newHeight = Math.min(Math.max(120, startHeight - deltaY), 600);
-              setEditorHeight(newHeight);
-            };
-
-            const onMouseUp = () => {
-              window.removeEventListener('mousemove', onMouseMove);
-              window.removeEventListener('mouseup', onMouseUp);
-            };
-
-            window.addEventListener('mousemove', onMouseMove);
-            window.addEventListener('mouseup', onMouseUp);
-          }}
+          onMouseDown={handleResize}
         />
 
         {/* 内容区 */}
         <div className="h-full overflow-hidden pt-[6px]">
           <MidiNoteEditor
-            notes={notes}
-            onNotesChange={setNotes}
             onTimeChange={(t) => {
-              rhythmRef.current?.setCurrentTime(t);
-              MidiPlayer.pause();
-              MidiPlayer.seek(t);
+              getRhythm()?.seekTo(t);
+              MidiPlayer.get().pause();
+              MidiPlayer.get().seek(t);
             }}
           />
         </div>

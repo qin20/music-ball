@@ -20,7 +20,7 @@ export const PianoKeys: React.FC<{
           style={{ height: rowHeight }}
           onClick={() => onClick(midi)}
         >
-          {midiToNoteName(midi)}
+          {midi}<span className='ml-2 inline-block w-8 text-nowrap'>{midiToNoteName(midi)}</span>
         </div>
       ))}
     </>

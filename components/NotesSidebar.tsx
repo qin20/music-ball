@@ -3,7 +3,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 
 interface NotesSidebarProps {
-  events: MidiNote[];
+  events: SerializedNote[];
   disabledIndexes: Set<number>;
   onToggleDisable: (index: number, disabled: boolean) => void;
   onSeek: (time: number) => void;

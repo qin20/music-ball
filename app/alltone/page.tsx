@@ -43,7 +43,7 @@ export default function AllTonePage() {
   const [paramValues, setParamValues] = useState({ ...defaultValues });
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [notes, setNotes] = useState<MidiNote[] | null>(null);
+  const [notes, setNotes] = useState<SerializedNote[] | null>(null);
   const [isReady, setIsReady] = useState(false);
   const durationRef = useRef(0);
   const isDraggingRef = useRef(false);
@@ -97,7 +97,7 @@ export default function AllTonePage() {
     }
   };
 
-  const initSynthAndPart = async (data: MidiNote[], type: SynthType = synthType) => {
+  const initSynthAndPart = async (data: SerializedNote[], type: SynthType = synthType) => {
     const config = { ...paramValues };
     const isPoly = synthTypes.find(s => s.value === type)?.poly;
     let synth: any;
@@ -140,7 +140,7 @@ export default function AllTonePage() {
     synth.volume.value = 0;
     synthRef.current = synth;
 
-    const eventMap = new Map<number, MidiNote[]>();
+    const eventMap = new Map<number, SerializedNote[]>();
     data.forEach(n => {
       if (!eventMap.has(n.time)) eventMap.set(n.time, []);
       eventMap.get(n.time)!.push(n);

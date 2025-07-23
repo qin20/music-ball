@@ -1,14 +1,14 @@
 'use client';
 
-import * as Tone from 'tone';
 import { useEffect, useRef, useState } from 'react';
-import { MidiPlayer } from '@/lib/MidiPlayer'; // ✅ 使用单例
-import { SynthType } from '@/lib/MidiPlayerInstance'; // ✅ 使用单例
+import { MidiPlayer, SynthType } from '@/lib/MidiPlayer'; // ✅ 使用单例
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { getMainTrack, serializeTrack } from '@/lib/Midi'
+import { concatNotes, getMainTrack, serializeTrack } from '@/lib/Midi'
+import { useStore } from '@/hooks/useStore';
+import { createGlissandoIntro } from '@/lib/MidiCustomNotes';
 
 const synthTypes: { label: string; value: SynthType }[] = [
   { label: 'FMSynth（金属水杯）', value: 'fmsynth' },
@@ -33,32 +33,40 @@ const paramMeta = {
 
 type ParamKey = keyof typeof defaultValues;
 
-export default function MidiPlayerUI({
-  onNotesChange
-}: {
-  onNotesChange?: (notes: SerializedNote[]) => void;
-}) {
+export default function MidiPlayerUI() {
   const [synthType, setSynthType] = useState<SynthType>('fmsynth');
   const [params, setParams] = useState({ ...defaultValues });
   const [transpose, setTranspose] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const isDraggingRef = useRef(false);
+  const {
+    value: notes,
+    setDefaultValue: setNotes,
+  } = useStore<SerializedNote[]>('notes');
 
+  // 只在 notes 或 transpose 改变时，才更新完整播放结构
   useEffect(() => {
-    MidiPlayer.init({
+    MidiPlayer.get().updateConfig({
+      notes,
+      transpose,
+    });
+  }, [notes, transpose]);
+
+  // 合成器参数变化时，单独调用 updateConfig（不传 notes/transpose）
+  useEffect(() => {
+    MidiPlayer.get().updateConfig({
       synthType,
       volume: 1,
-      transpose,
       params,
     });
-  }, []);
+  }, [synthType, params]);
 
   useEffect(() => {
     let raf: number;
     const loop = () => {
       if (!isDraggingRef.current) {
-        setProgress(MidiPlayer.getProgress());
+        setProgress(MidiPlayer.get().getProgress());
       }
       raf = requestAnimationFrame(loop);
     };
@@ -68,19 +76,16 @@ export default function MidiPlayerUI({
 
   const handleSynthChange = (type: SynthType) => {
     setSynthType(type);
-    MidiPlayer.setSynthType(type);
   };
 
   const handleParamChange = (key: ParamKey, value: number) => {
     const clamped = Math.max(paramMeta[key].min, Math.min(paramMeta[key].max, value));
     const next = { ...params, [key]: clamped };
     setParams(next);
-    MidiPlayer.setParams(next);
   };
 
   const handleTransposeChange = (v: number) => {
     setTranspose(v);
-    MidiPlayer.setTranspose(v);
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,29 +94,22 @@ export default function MidiPlayerUI({
 
     setIsPlaying(false);
 
-    const track = await getMainTrack(file);
-    const notes = serializeTrack(track);
+    const mainTrack = await getMainTrack(file);
+    const mainNotes = serializeTrack(mainTrack);
 
-    MidiPlayer.pause();
-    MidiPlayer.init({
-      notes,
-      synthType,
-      volume: 1,
-      transpose,
-      params,
-    });
+    // 拼接 intro + main
+    const finalNotes = concatNotes(createGlissandoIntro(), mainNotes);
+    // const finalNotes = concatNotes(createGlissandoIntro());
 
-    onNotesChange?.(notes);
+    setNotes(finalNotes);
   };
 
   const togglePlay = async () => {
-    await Tone.start();
-    const playing = await MidiPlayer.toggle();
+    const playing = await MidiPlayer.get().toggle();
     setIsPlaying(playing);
   };
 
   const handleExport = async () => {
-    await MidiPlayer.export();
   };
 
   return (
@@ -248,11 +246,11 @@ export default function MidiPlayerUI({
           onValueChange={([val]) => {
             isDraggingRef.current = true;
             setProgress(val);
-            MidiPlayer.seek(val * MidiPlayer.getDuration());
+            MidiPlayer.get().setProgress(val);
           }}
           onValueCommit={([val]) => {
             isDraggingRef.current = false;
-            MidiPlayer.seek(val * MidiPlayer.getDuration());
+            MidiPlayer.get().setProgress(val);
           }}
         />
         <div className="text-xs text-center">

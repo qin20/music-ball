@@ -33,13 +33,7 @@ export function serializeNotes(notes: Track['notes']): SerializedNote[] {
     name          : n.name,
     midi          : n.midi,
     duration      : n.duration,
-    velocity      : n.velocity,
-    durationTicks : n.durationTicks,
-    noteOffVelocity: n.noteOffVelocity,
-    ticks         : n.ticks,
-    bars          : (n.bars as unknown) as number,
-    octave        : n.octave,
-    pitch         : n.pitch,
+    _note         : n,
   }))
 }
 
@@ -54,94 +48,6 @@ export function getMainTrackIndex(tracks: Track[]): number {
           )
     }))
     .sort((a,b)=>b.score-a.score)[0].i
-}
-
-export function filterUnrelatedNotes(
-  notes: SerializedNote[],
-  options: {
-    minVelocity?: number
-    pitchRange?: [number, number]
-    excludeNames?: string[]
-  } = {}
-): SerializedNote[] {
-  const {
-    minVelocity = 0.2,
-    pitchRange = [60, 84],
-    excludeNames = [],
-  } = options
-
-  return notes.filter(n =>
-    n.velocity >= minVelocity &&
-    n.midi >= pitchRange[0] &&
-    n.midi <= pitchRange[1] &&
-    !excludeNames.includes(n.name)
-  )
-}
-
-export function mergeChordsToSingleNotes(ns:SerializedNote[],th=0.03){
-  const sorted=[...ns].sort((a,b)=>a.time-b.time)
-  const out:SerializedNote[]=[];let bucket:SerializedNote[]=[]
-  const flush=()=>{
-    if(!bucket.length) return
-    const avgMidi=Math.round(bucket.reduce((s,n)=>s+n.midi,0)/bucket.length)
-    const avgVel=bucket.reduce((s,n)=>s+n.velocity,0)/bucket.length
-    const midDur=bucket.map(n=>n.duration).sort((a,b)=>a-b)[Math.floor(bucket.length/2)]
-    out.push({...bucket[0],...midiToNames(avgMidi),midi:avgMidi,velocity:avgVel,duration:midDur})
-  }
-  for(const n of sorted){
-    if(!bucket.length||Math.abs(n.time-bucket[bucket.length-1].time)<=th) bucket.push(n)
-    else{ flush(); bucket=[n] }
-  }
-  flush()
-  return out
-}
-
-export function filterDenseNotes(ns:SerializedNote[],minDelta=0.12){
-  const res:SerializedNote[]=[];let last=-Infinity
-  for(const n of [...ns].sort((a,b)=>a.time-b.time)){
-    if(n.time-last>=minDelta){res.push(n);last=n.time}
-  }
-  return res
-}
-
-export const normalizeDurations=(ns:SerializedNote[],seconds:Seconds=1)=>
-  ns.map(n=>({...n,duration:Math.max(seconds, n.duration)}))
-
-export function limitLongGaps(
-  ns: SerializedNote[],
-  maxGapMs = 2000
-): SerializedNote[] {
-  const sorted = [...ns].sort((a,b)=>a.time-b.time)
-  let trimAcc = 0
-  for(let i=1;i<sorted.length;i++){
-    const gap = (sorted[i].time - sorted[i-1].time) - trimAcc
-    const gapMs = gap * 1000
-    if (gapMs > maxGapMs) {
-      const trim = (gapMs - maxGapMs)/1000
-      trimAcc += trim
-    }
-    sorted[i].time -= trimAcc
-  }
-  return sorted
-}
-
-/* =========================================================
- *        🔄  SerializedNote[]  →  MidiNote[]
- * ========================================================= */
-
-export function parseMidiNoteFromNotes(ns: SerializedNote[]): MidiNote[] {
-  if(!ns.length) return []
-  const PRE_SHIFT_MS = 500
-  const shift = Math.max(0, ns[0].time*1000 - PRE_SHIFT_MS)/1000
-  const evts:MidiNote[]=[];let cur=0
-  ns.forEach((n,i)=>{
-    const start = (n.time-shift)*1000
-    const delta = i===0 ? start : start - evts[i-1].time
-    cur += delta
-    evts.push({ delta, time:cur, midi:n.midi, ...midiToNames(n.midi),
-      duration:n.duration*1000, velocity:n.velocity })
-  })
-  return evts
 }
 
 /* =========================================================
@@ -164,24 +70,95 @@ export async function getMainTrack(input: File|ArrayBuffer) {
 export function serializeTrack(track: Track): SerializedNote[] {
   // eslint-disable-next-line
   let notes = serializeNotes(track.notes)
-
-  // notes = notes.filter((n, i) => !disabledIndexes.includes(i));
-
-  // console.log(parseMidiNoteFromNotes(notes))
-
-  // notes = filterUnrelatedNotes(notes, {
-  //   minVelocity: .3,
-  //   pitchRange: [-Infinity, Infinity],
-  //   excludeNames: [],
-  // })
-  // notes = mergeChordsToSingleNotes(notes, 0.03)
-  // notes = filterDenseNotes(notes, 0.12)
-  // notes = normalizeDurations(notes, .5)
-  // notes = limitLongGaps(notes, 1500)
-
-  // const events = parseMidiNoteFromNotes(notes);
-  // console.log(events);
-
+  // notes = notes.slice(0, 15)
   console.log(notes);
   return notes;
+}
+
+export function compressNotes(notes: SerializedNote[], minDelta = 0): SerializedNote[] {
+  if (!notes.length) return notes;
+
+  const EPSILON = 1e-6;
+  const compressed: SerializedNote[] = [];
+  let group: SerializedNote[] = [];
+
+  for (let i = 0; i < notes.length; i++) {
+    const note = notes[i];
+
+    if (group.length === 0) {
+      group.push(note);
+    } else {
+      const anchor = group[0];
+      const delta = note.time - anchor.time;
+
+      if (delta < minDelta - EPSILON) {
+        group.push(note);
+      } else {
+        compressed.push({ ...anchor });
+        group = [note];
+      }
+    }
+  }
+
+  if (group.length > 0) {
+    compressed.push({ ...group[0] });
+  }
+
+  const originalFirstDelta = notes[1].time - notes[0].time;
+
+  return compressed.map((curr, i) => {
+    const prev = compressed[i - 1];
+    return {
+      ...curr,
+      delta: i === 0 ? originalFirstDelta : curr.time - prev.time
+    };
+  });
+}
+
+export function concatNotes(...noteGroups: SerializedNote[][]): SerializedNote[] {
+  let timeOffset = 0;
+  const result: SerializedNote[] = [];
+
+  for (const group of noteGroups) {
+    const shifted = group.map(note => ({
+      ...note,
+      time: note.time + timeOffset,
+    }));
+
+    result.push(...shifted);
+
+    if (group.length > 0) {
+      const last = group.at(-1)!;
+      const groupStartTime = group[0].time;
+      timeOffset += last.time + last.duration - groupStartTime;
+    }
+  }
+
+  return result;
+}
+
+export function computeMidiCenter(notes: SerializedNote[]): number {
+  const midis = notes.map(n => n.midi).filter(m => m >= 0 && m <= 127);
+  if (midis.length === 0) return 60;
+
+  midis.sort((a, b) => a - b);
+  const median = midis[Math.floor(midis.length / 2)];
+  return median;
+}
+
+export function getNoteColor(midi: number, centerMidi: number = 60): string {
+  const NOTE_HUES: Record<string, number> = {
+    'C': 0, 'C#': 150, 'D': 30, 'D#': 180,
+    'E': 60, 'F': 210, 'F#': 90, 'G': 240,
+    'G#': 120, 'A': 270, 'A#': 330, 'B': 300,
+  };
+
+  const noteName = midiToNoteName(midi);
+  const pitch = noteName.replace(/[0-9]/g, '');
+  const hue = NOTE_HUES[pitch] ?? 0;
+
+  const delta = midi - centerMidi;
+  const lightness = Math.max(45, Math.min(75, 60 + delta * 0.5));
+
+  return `hsl(${hue}, 100%, ${lightness.toFixed(1)}%)`;
 }

@@ -1,0 +1,37 @@
+import { midiToNoteName } from "./Midi";
+
+export function createGlissandoIntro(count: number = 28): SerializedNote[] {
+  const notes: SerializedNote[] = [];
+
+  const slowMidis = [70, 71, 72];
+  const slowTimings = [0.0, 0.6, 1.1];
+  const slowDurations = [1, 0.8, 0.65];
+
+  for (let i = 0; i < slowMidis.length; i++) {
+    notes.push({
+      time: slowTimings[i],
+      midi: slowMidis[i],
+      name: midiToNoteName(slowMidis[i]),
+      duration: slowDurations[i],
+      direction: 'H',
+    });
+  }
+
+  // ⚡ 紧凑段从最后一个缓慢音符往上推
+  const fastStartMidi = slowMidis.at(-1)! + 1; // 72 + 1 = 73
+  const fastStartTime = 1.5;
+  const fastDuration = 0.05;
+
+  for (let i = 0; i < count; i++) {
+    const midi = fastStartMidi + i;
+    notes.push({
+      time: fastStartTime + i * fastDuration,
+      midi,
+      name: midiToNoteName(midi),
+      duration: fastDuration,
+      direction: 'V',
+    });
+  }
+
+  return notes;
+}
