@@ -2,6 +2,7 @@ import { midiToNoteName } from "./Midi";
 
 export function createGlissandoIntro(count: number = 28): SerializedNote[] {
   const notes: SerializedNote[] = [];
+  const direction = Math.random() > 0.5 ? 'H' : 'V';
 
   const slowMidis = [70, 71, 72];
   const slowTimings = [0.0, 0.6, 1.1];
@@ -13,7 +14,7 @@ export function createGlissandoIntro(count: number = 28): SerializedNote[] {
       midi: slowMidis[i],
       name: midiToNoteName(slowMidis[i]),
       duration: slowDurations[i],
-      direction: 'H',
+      direction: direction,
     });
   }
 
@@ -29,7 +30,7 @@ export function createGlissandoIntro(count: number = 28): SerializedNote[] {
       midi,
       name: midiToNoteName(midi),
       duration: fastDuration,
-      direction: 'V',
+      direction: direction === 'H' ? 'V' : 'H',
     });
   }
 

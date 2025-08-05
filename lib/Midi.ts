@@ -1,12 +1,6 @@
 import { Midi, Track } from '@tonejs/midi'
 
 /* =========================================================
- *                     🔠 Type Definitions
- * ========================================================= */
-
-
-
-/* =========================================================
  *                 🎹 Helper: MIDI → 音名 / 唱名
  * ========================================================= */
 
@@ -161,4 +155,31 @@ export function getNoteColor(midi: number, centerMidi: number = 60): string {
   const lightness = Math.max(45, Math.min(75, 60 + delta * 0.5));
 
   return `hsl(${hue}, 100%, ${lightness.toFixed(1)}%)`;
+}
+
+/**
+ * 对一组音符整体进行时间偏移
+ * @param notes 音符数组
+ * @param offset 偏移时间，正数向后，负数向前
+ * @returns 偏移后的音符数组
+ */
+export function shiftNotesTime(notes: SerializedNote[], offset: number): SerializedNote[] {
+  return notes.map(note => ({
+    ...note,
+    time: note.time + offset
+  }));
+}
+
+/**
+ * 将一组 notes 的起始时间调整为指定时间（默认 3s）
+ * 保持所有音符的相对节奏不变
+ * @param notes 要调整的音符组
+ * @param startTime 目标开始时间（单位：秒），默认 3 秒
+ * @returns 调整后的 notes
+ */
+export function alignNotesStartTime(notes: SerializedNote[], startTime: number = 3): SerializedNote[] {
+  if (!notes.length) return notes;
+
+  const delta = startTime - notes[0].time;
+  return shiftNotesTime(notes, delta);
 }

@@ -12,17 +12,20 @@ import {
   Maximize,
   RefreshCcw,
   Loader2,
+  Download,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ResolutionSelector } from './ResolutionSelector';
 import { CameraMode, CameraModes } from '@/lib/rhythmBall/Camera';
 import { useRhythmInstance } from '@/hooks/useRhythmInstance';
+import { RhythmExporter } from '@/lib/rhythmBall/RhythmExporter';
+import { downloadBlob } from '@/lib/rhythmBall/utils/downloadBlob';
+import { QUALITY_VERY_LOW } from 'mediabunny';
 
 
 interface EditorToolbarProps {
   currentTime: number;
   totalDuration: number;
-  resolution: '16:9' | '9:16';
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -30,9 +33,11 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   totalDuration,
 }) => {
   const { undo, redo, canUndo, canRedo } = useStore<SerializedNote[]>('notes');
-  const [isPlaying, setIsPlaying] = useState(false);
   const { value: cameraMode, setValue: setCameraMode } = useStore<CameraMode>('cameraMode', CameraModes.ALL);
-  const { refresh, loading } = useRhythmInstance();
+  const { refresh, loading, get: getRhythm } = useRhythmInstance();
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
 
   const toggleCameraMode = () => {
     setCameraMode(cameraMode === CameraModes.ALL ? CameraModes.FOLLOW : CameraModes.ALL);
@@ -46,6 +51,27 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
 
   const handlePlayToggle = async () => {
     await MidiPlayer.get().toggle();
+  };
+
+  const handleExport = async () => {
+    const rhythm = getRhythm();
+    if (!rhythm) return;
+    setIsExporting(true);
+    console.log('导出视频时长: ', rhythm.data.segments.at(-1)?.endTime);
+    const exporter = new RhythmExporter(rhythm, {
+      quality: QUALITY_VERY_LOW,
+      width: 1080,
+      height: 1920,
+      fps: 60,
+      onProgress: (progress) => {
+        setExportProgress(progress);
+        // console.log(`Export progress: ${(progress * 100).toFixed(1)}%`);
+      },
+    });
+    const webmBlob = await exporter.export();
+    exporter.dispose();
+    downloadBlob(webmBlob, 'output.mp4');
+    setIsExporting(false);
   };
 
   const formatTime = (t: number) => `${t.toFixed(2)}s`;
@@ -108,6 +134,15 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         title="刷新路径"
       >
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCcw className="w-4 h-4" />}
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={handleExport}
+        title="导出视频"
+      >
+        {isExporting ? `${(exportProgress * 100).toFixed(1)}%` : <Download className="w-4 h-4" />}
       </Button>
     </div>
   );

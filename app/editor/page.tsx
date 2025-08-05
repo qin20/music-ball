@@ -99,10 +99,9 @@ export default function EditorPage() {
       const rhythm = new Rhythm(canvasRef.current, _compressNotes, {
         background: '#fff',
         characterSize,
-        minDistance: characterSize * 2,
         characterSkin: null,
         pathWidth: characterSize,
-        speed: calculateRecommendedSpeedByDistance(_compressNotes, characterSize * 1.1),
+        speed: calculateRecommendedSpeedByDistance(_compressNotes, characterSize * 0.75),
         // speed: 100,
         wallColor: '#222',
         wallLength: characterSize,

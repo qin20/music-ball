@@ -24,8 +24,6 @@
  * | characterSize     | number          | 9      | 小球半径，用于推导墙体/路径宽度             |
  * | wallThickness     | number          | 3      | 墙体厚度，用于绘制和碰撞检测                |
  * | wallLength        | number          | 80     | 墙体长度（横/竖线段长度）                   |
- * | random            | boolean         | false  | 是否启用随机反射方向（默认固定交替）        |
- * | minDistance       | number          | 2r     | 每段最小移动距离（默认为小球直径 * 2）      |
  * | pathWidth         | number          | 1r     | 小球通道宽度（默认为小球直径）              |
  *
  *
@@ -71,18 +69,13 @@ export type Seconds = number;
 export interface Wall {
   start: Vec2;
   end: Vec2;
+  direction: Direction;
   hitColor: string;
   effects: any[];
 }
 
-export interface Segment {
-  startTime: number;
-  endTime: number;
-  startPos: Vec2;
-  endPos: Vec2;
-}
-
 export interface RhythmPathPlanData {
+  initBallDirection: BallDirection;
   paths: Vec2[];
   walls: Wall[];
   segments: Segment[];
@@ -95,10 +88,8 @@ export interface RhythmPathPlannerConfig {
   characterSize: number;
   wallThickness: number;
   wallLength: number;
-  minDistance: number;
   pathWidth: number;
-  random?: boolean;
-  randomFn?: () => number;
+  initBallDirection?: BallDirection,
   onStep?: (step: { index: number; pos: Vec2; direction: Direction }) => void;
 }
 
@@ -135,41 +126,24 @@ function polygonsIntersect(p1: SAT.Polygon, p2: SAT.Polygon): boolean {
 }
 
 export class RhythmPathPlanner {
-  private readonly notes: SerializedNote[];
-  private readonly startPos: Vec2;
-  private readonly speed: number;
-  private readonly random: () => number;
-  private readonly onStep?: RhythmPathPlannerConfig['onStep'];
-
-  private readonly opts: Required<Omit<RhythmPathPlannerConfig, 'startPos' | 'notes' | 'speed' | 'randomFn' | 'onStep'>>;
-
   private readonly distances: { dt: number; dis: number;}[];
 
-  constructor(config: RhythmPathPlannerConfig) {
-    const {
-      startPos,
-      notes,
-      speed,
-      characterSize,
-      wallThickness ,
-      wallLength,
-      minDistance,
-      pathWidth,
-      random = false,
-      randomFn = Math.random,
-      onStep
-    } = config;
+  constructor(public config: RhythmPathPlannerConfig) {
+    this.distances = config.notes.map((n, i) =>
+      i === 0 ? n.time : n.time - config.notes[i - 1].time
+    ).map(dt => ({ dt,  dis: dt * config.speed }));
 
-    this.startPos = startPos;
-    this.notes = notes;
-    this.speed = speed;
-    this.random = randomFn;
-    this.onStep = onStep;
-    this.opts = { characterSize, wallThickness, wallLength, random, minDistance, pathWidth };
+    console.log(this.distances);
+  }
 
-    this.distances = this.notes.map((n, i) =>
-      i === 0 ? n.time : n.time - this.notes[i - 1].time
-    ).map(dt => ({ dt,  dis: dt * speed }));
+  getInitBallDirection() {
+    if (this.config.initBallDirection) {
+      return this.config.initBallDirection;
+    }
+    const directions = [
+      'righttop', 'rightbottom', 'leftbottom', 'lefttop',
+    ];
+    return directions[Math.floor(Math.random() * directions.length)] as BallDirection;
   }
 
   generate(): RhythmPathPlanData {
@@ -177,35 +151,33 @@ export class RhythmPathPlanner {
   }
 
   generateMultiple(maxSolutions = 1): RhythmPathPlanData[] {
-    const { wallLength, wallThickness, characterSize, pathWidth } = this.opts;
+    const { wallLength, wallThickness, characterSize, pathWidth } = this.config;
     const offset = characterSize / 2 + wallThickness / 2;
-
-    const directions = [
-      { dx: 1, dy: 1 },
-      { dx: 1, dy: -1 },
-      { dx: -1, dy: -1 },
-      { dx: -1, dy: 1 }
-    ];
-    const initDir = directions[Math.floor(this.random() * directions.length)];
-
+    const initBallDirection = this.getInitBallDirection().toLocaleLowerCase() as BallDirection;
+    const initDir = {
+      'righttop': { dx: 1, dy: 1 },
+      'rightbottom': { dx: 1, dy: -1 },
+      'leftbottom': { dx: -1, dy: -1 },
+      'lefttop': { dx: -1, dy: 1 },
+    }[initBallDirection];
     const stack: StackState[] = [{
       index: 0,
-      pos: { ...this.startPos },
+      pos: { ...this.config.startPos },
       dx: initDir.dx,
       dy: initDir.dy,
       tried: []
     }];
 
-    const path: Vec2[] = [{ ...this.startPos }];
+    const path: Vec2[] = [{ ...this.config.startPos }];
     const walls: Wall[] = [];
     const segments: Segment[] = [];
     const pathPolys: SAT.Polygon[] = [];
     const wallPolys: SAT.Polygon[] = [];
     const solutions: RhythmPathPlanData[] = [];
-    const centerMidi = computeMidiCenter(this.notes);
+    const centerMidi = computeMidiCenter(this.config.notes);
 
     const tryStep = (state: StackState): boolean => {
-      const note = this.notes[state.index];
+      const note = this.config.notes[state.index];
       const dist = this.distances[state.index];
       const step = dist.dis / Math.sqrt(2);
 
@@ -245,6 +217,7 @@ export class RhythmPathPlanner {
       const hitColor = getNoteColor(note.midi, centerMidi);
       walls.push({
         ...wall,
+        direction,
         hitColor,
         effects: []
       });
@@ -260,7 +233,7 @@ export class RhythmPathPlanner {
       pathPolys.push(pathPoly);
       wallPolys.push(wallPoly);
 
-      this.onStep?.({ index: state.index, pos: nextPos, direction });
+      this.config.onStep?.({ index: state.index, pos: nextPos, direction });
 
       stack.push({ index: state.index + 1, pos: nextPos, dx: nextDx, dy: nextDy, tried: [] });
       return true;
@@ -269,11 +242,12 @@ export class RhythmPathPlanner {
     while (stack.length) {
       const state = stack.at(-1)!;
 
-      if (state.index >= this.notes.length) {
+      if (state.index >= this.config.notes.length) {
         solutions.push({
           paths: path.slice(),
           walls: walls.slice(),
-          segments: segments.slice()
+          segments: segments.slice(),
+          initBallDirection: initBallDirection,
         });
         if (solutions.length >= maxSolutions) break;
         stack.pop(); path.pop(); walls.pop(); segments.pop(); pathPolys.pop(); wallPolys.pop();

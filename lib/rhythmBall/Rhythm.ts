@@ -4,7 +4,7 @@ import { Camera } from './Camera';
 import { RhythmWalls } from './RhythmWalls';
 import { RhythmBall } from './RhythmBall';
 import { CanvasResizer } from './CanvasResizer';
-import { RhythmPathPlannerWorker } from '@/lib/workers/planner/RhythmPathPlannerWorker';
+import { RhythmPathPlannerWorker } from './workers/planner/RhythmPathPlannerWorker';
 import type { RhythmPathPlanData } from './RhythmPathPlanner';
 
 export interface RhythmOptions {
@@ -13,21 +13,21 @@ export interface RhythmOptions {
   wallColor: string;
   wallThickness: number;
   wallLength: number;
-  minDistance: number;
   pathWidth: number;
   background: string;
   characterSkin: any;
+  initBallDirection?: BallDirection;
 }
 
 export class Rhythm {
-  private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private center: { x: number; y: number };
-  private notes: SerializedNote[];
 
-  private walls: RhythmWalls;
+  public walls: RhythmWalls;
   private ball!: RhythmBall;
 
+  public canvas: HTMLCanvasElement;
+  public notes: SerializedNote[];
   public options: RhythmOptions;
   public data!: RhythmPathPlanData;
   public camera: Camera;
@@ -48,7 +48,7 @@ export class Rhythm {
       background: this.options.background,
     });
 
-    this.ball = new RhythmBall(options.characterSkin ?? null);
+    this.ball = new RhythmBall(this.options.characterSize, options.characterSkin ?? null);
 
     this.camera = new Camera(this.canvas, {
       safeMarginX: this.canvas.width * 0.15,
@@ -76,7 +76,6 @@ export class Rhythm {
     const data = await worker.generateAsync({
       startPos: this.center,
       notes: this.notes,
-      random: false,
       ...this.options,
     });
     worker.dispose();
@@ -94,10 +93,6 @@ export class Rhythm {
     this.ball.seekTo(seconds);
     this.walls.seekTo(seconds);
     this.camera.update(this.ball.getPosition());
-
-    this.ball.addTrail();
-    this.ball.updateTrail();
-    // this.ball.updateSpriteFrame?.(16);
 
     this.render();
 
@@ -128,8 +123,7 @@ export class Rhythm {
 
     this.walls.drawWallMask(ctx, this.camera);
     this.walls.draw(ctx);
-    this.ball.drawTrail(ctx);
-    this.ball.draw(ctx, this.options.characterSize);
+    this.ball.draw(ctx);
 
     this.camera.drawSafeMargin(ctx);
   }

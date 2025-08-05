@@ -1,4 +1,5 @@
 import * as Tone from 'tone';
+import audioBufferToWav from "audiobuffer-to-wav";
 import { withEventEmitter } from './EventEmmiter';
 
 export type SynthType = 'fmsynth' | 'amsynth';
@@ -31,55 +32,32 @@ const defaultConfig: MidiPlayerConfig = {
   volume: 0,
   transpose: 0,
   params: {
-    harmonicity: 1,
-    modulationIndex: 10,
+    harmonicity: 10,
+    modulationIndex: 1,
     attack: 0.01,
-    decay: 0.1,
-    release: 1
+    decay: 1,
+    release: 0.3,
   }
 };
 
 export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
-  private synth!: Tone.PolySynth;
-  private part?: Tone.Part;
-  private rafId?: number;
+  synth!: Tone.PolySynth;
+  part?: Tone.Part;
+  rafId?: number;
   public totalDuration: Seconds = 0;
   public isPlaying = false;
 
-  constructor(private config: MidiPlayerConfig) {
+  constructor(public config: MidiPlayerConfig) {
     super();
     this.config = { ...defaultConfig, ...config };
     this.updateConfig(this.config); // ✅ 初始化构建 synth 和 part
   }
 
-  private prepareEvents(notes: SerializedNote[]) {
-    const eventMap = new Map<number, SerializedNote[]>();
-    notes.forEach(n => {
-      if (n.disabled) return; // ✅ 跳过禁用音符
-      if (!eventMap.has(n.time)) eventMap.set(n.time, []);
-      eventMap.get(n.time)!.push(n);
-    });
+  lastRenderTime = 0;
+  frameInterval = 1000 / 60;
+  fpsLastTime = performance.now();
 
-    const events = Array.from(eventMap.entries()).map(([time, notes]) => ({
-      time: time,
-      notes,
-      duration: Math.max(...notes.map(n => n.duration)),
-      velocity: Math.max(...notes.map(n => n._note?.velocity || 1), 0.1)
-    })).sort((a, b) => a.time - b.time);
-
-    const last = events.at(-1);
-    this.totalDuration = last ? last.time + last.duration : 0;
-
-    return events;
-  }
-
-
-
-  private lastRenderTime = 0;
-  private frameInterval = 1000 / 60;
-  private fpsLastTime = performance.now();
-
-  private showfps(time: DOMHighResTimeStamp) {
+  showfps(time: DOMHighResTimeStamp) {
     const delta = time - this.fpsLastTime;
     const fps = 1000 / delta;
     console.log(`FPS: ${fps.toFixed(2)}`);
@@ -90,7 +68,7 @@ export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
     this.frameInterval = 1000 / fps;
   }
 
-  private tickProgress = (time: DOMHighResTimeStamp) => {
+  tickProgress = (time: DOMHighResTimeStamp) => {
     const delta = time - this.lastRenderTime;
     if (delta < this.frameInterval) {
       this.rafId = requestAnimationFrame(this.tickProgress);
@@ -178,29 +156,34 @@ export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
   }
 
   updateConfig(config: Partial<MidiPlayerConfig>) {
-    const shouldResetPart =
-      !!config.notes ||
-      (typeof config.transpose === 'number' && config.transpose !== this.config.transpose);
-
-    this.config = { ...this.config, ...config };
-    this._applySynthConfig(this.config);
-    if (shouldResetPart) {
-      this._applyPartConfig(this.config);
+    const conf = { ...this.config, ...config };
+    if (!this.synth || conf.synthType !== this.config.synthType) {
+      this.synth?.dispose();
+      this.synth = this.createSynth(this.config);
     }
+    this.updateSynth(this.synth, conf);
+
+    const shouldResetPart = !!config.notes || (typeof config.transpose === 'number' && config.transpose !== this.config.transpose);
+    if (shouldResetPart) {
+      this.pause();
+      this.seek(0);
+      this.part?.dispose();
+      this.part = this.createPart(this.synth, conf);
+    }
+
+    this.config = conf;
   }
 
-  private _applySynthConfig(config: MidiPlayerConfig) {
+  createSynth(config: MidiPlayerConfig) {
     const SynthClass = {
       fmsynth: Tone.FMSynth,
       amsynth: Tone.AMSynth
     }[config.synthType];
+    return new Tone.PolySynth(SynthClass as any).toDestination();
+  }
 
-    if (!this.synth || config.synthType !== this.config.synthType) {
-      this.synth?.dispose();
-      this.synth = new Tone.PolySynth(SynthClass as any).toDestination();
-    }
-
-    this.synth.set({
+  updateSynth(synth: Tone.PolySynth, config: MidiPlayerConfig) {
+    synth.set({
       // @ts-expect-error 会报错，但实际有效
       harmonicity: config.params.harmonicity,
       modulationIndex: config.params.modulationIndex,
@@ -212,24 +195,68 @@ export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
       }
     });
 
-    this.synth.volume.value = config.volume;
+    synth.volume.value = config.volume;
   }
 
-  private _applyPartConfig(config: MidiPlayerConfig) {
-    this.pause();
-    this.seek(0);
-    this.part?.dispose();
-
+  createPart(synth: Tone.PolySynth, config: MidiPlayerConfig) {
     const events = this.prepareEvents(config.notes ?? []);
-    this.part = new Tone.Part((time, ev) => {
+    const part = new Tone.Part((time, ev) => {
       if (!ev.notes?.length) return;
       const notes = ev.notes.map(n =>
         Tone.Frequency(n.midi + config.transpose, 'midi').toNote()
       );
-      this.synth.triggerAttackRelease(notes, ev.duration, time, ev.velocity);
+      synth.triggerAttackRelease(notes, ev.duration, time, ev.velocity);
     }, events).start(0);
+    part.loop = false;
+    return part;
+  }
 
-    this.part.loop = false;
+  prepareEvents(notes: SerializedNote[]) {
+    const eventMap = new Map<number, SerializedNote[]>();
+    notes.forEach(n => {
+      if (n.disabled) return; // ✅ 跳过禁用音符
+      if (!eventMap.has(n.time)) eventMap.set(n.time, []);
+      eventMap.get(n.time)!.push(n);
+    });
+
+    const constantDuration = 0.3;
+    const constantVelocity = 0.8;
+    const events = Array.from(eventMap.entries()).map(([time, notes]) => ({
+      time: time,
+      notes,
+      duration: constantDuration,
+      velocity: constantVelocity,
+      // duration: Math.max(...notes.map(n => n.duration)),
+      // velocity: Math.max(...notes.map(n => n._note?.velocity || 1), 0.1),
+    })).sort((a, b) => a.time - b.time);
+
+    const last = events.at(-1);
+    this.totalDuration = last ? last.time + last.duration : 0;
+
+    return events;
+  }
+
+  async getBuffer(): Promise<AudioBuffer> {
+    const events = this.prepareEvents(this.config.notes ?? []);
+    if (!events.length) throw new Error("No notes to export");
+
+    const duration = events.at(-1)!.time + 1.5; // 留出 release 时间
+    const buffer = await Tone.Offline(({ transport }) => {
+      const synth = this.createSynth(this.config);
+      this.updateSynth(synth, this.config);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const part = this.createPart(synth, this.config).start(0);
+      transport.start();
+    }, duration);
+
+    return buffer.get()!;
+  }
+
+  async exportWav(): Promise<Blob> {
+    const buffer = await this.getBuffer();
+    const wavData = audioBufferToWav(buffer);
+    const blob = new Blob([wavData], { type: "audio/wav" });
+    return blob;
   }
 
   async exportToWebM(): Promise<Blob> {

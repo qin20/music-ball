@@ -7,17 +7,11 @@ export interface Vec2 {
   y: number;
 }
 
-export interface Segment {
-  startTime: number;
-  endTime: number;
-  startPos: Vec2;
-  endPos: Vec2;
-}
-
-export interface TrailParticle {
-  x: number;
-  y: number;
-  life: number;
+export interface TrailBall {
+  x: number
+  y: number
+  haloColor: string
+  appearTime: number  // 什么时候该点出现残影
 }
 
 export interface FrameRect {
@@ -42,17 +36,25 @@ export interface CharacterSkin {
   };
 }
 
+// ===== 光晕颜色计算函数 =====
+function getHaloColorByTime(currentTime: number): string {
+  // ===== 可配置参数 =====
+  const HUE_CYCLE_SECONDS = 6; // hue 色相变化周期（秒）
+  const BASE_HUE = 90;          // hue 起始角度
+  const hue = (BASE_HUE + (currentTime * (360 / HUE_CYCLE_SECONDS))) % 360;
+  return `hsla(${hue}, 100%, 70%, 1)`;
+}
+
 export class RhythmBall {
   private segments: Segment[] = [];
   private skin: CharacterSkin | null;
 
-  private index = 0;
-  private t = 0;
+  private size = 0;
   private x = 0;
   private y = 0;
-  private _lastTriggeredIndex = -1;
+  private currentTime: Seconds = 0;
 
-  private trailParticles: TrailParticle[] = [];
+  private trailBalls: TrailBall[] = [];
 
   // Skin-related
   private sprite?: HTMLImageElement;
@@ -65,7 +67,8 @@ export class RhythmBall {
   private frameInterval = 100;
   private attackMap?: Record<string, string>;
 
-  constructor(characterSkin: CharacterSkin | null = null) {
+  constructor(size: number, characterSkin: CharacterSkin | null = null) {
+    this.size = size;
     this.skin = characterSkin;
     if (this.skin && this.skin.sprite && this.skin.frames) {
       this._initSkinState();
@@ -89,9 +92,35 @@ export class RhythmBall {
     this.segments = planner.segments;
     this.x = this.segments[0]?.startPos.x || 0;
     this.y = this.segments[0]?.startPos.y || 0;
+    this.trailBalls = this.generateTrails();
+  }
+
+  generateTrails(density: number = 7): TrailBall[] {
+    const trailBalls: TrailBall[] = []
+
+    for (const seg of this.segments) {
+      const dx = seg.endPos.x - seg.startPos.x
+      const dy = seg.endPos.y - seg.startPos.y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      const count = Math.floor(distance / density)
+
+      for (let i = 0; i <= count; i++) {
+        const t = i / count
+        const x = seg.startPos.x + dx * t
+        const y = seg.startPos.y + dy * t
+        const appearTime = seg.startTime + t * (seg.endTime - seg.startTime)
+        const haloColor = getHaloColorByTime(appearTime)
+
+        trailBalls.push({ x, y, haloColor, appearTime })
+      }
+    }
+
+    return trailBalls
   }
 
   seekTo(seconds: Seconds) {
+    this.currentTime = seconds;
+
     const attackMap = this.attackMap || {};
     const moveMap = this.behavior?.moveMap || {};
     const impactFrames = this.behavior?.impactFrames || {};
@@ -103,8 +132,6 @@ export class RhythmBall {
 
       if (seconds >= startTime && seconds < endTime) {
         const t = (seconds - startTime) / (endTime - startTime);
-        this.index = i;
-        this.t = t;
 
         this.x = seg.startPos.x * (1 - t) + seg.endPos.x * t;
         this.y = seg.startPos.y * (1 - t) + seg.endPos.y * t;
@@ -138,8 +165,6 @@ export class RhythmBall {
     // ✅ 超出所有段落：强制设定为最后状态
     const lastSeg = this.segments.at(-1);
     if (lastSeg && seconds >= lastSeg.endTime) {
-      this.index = this.segments.length - 1;
-      this.t = 1;
       this.x = lastSeg.endPos.x;
       this.y = lastSeg.endPos.y;
 
@@ -201,66 +226,55 @@ export class RhythmBall {
     }
   }
 
-  addTrail() {
-    this.trailParticles.push({ x: this.x, y: this.y, life: 1.0 });
-  }
-
-  updateTrail() {
-    for (const p of this.trailParticles) {
-      p.life -= 0.02;
-    }
-    this.trailParticles = this.trailParticles.filter(p => p.life > 0);
-  }
-
   drawTrail(ctx: CanvasRenderingContext2D) {
-    for (const p of this.trailParticles) {
-      const radius = 6 * p.life;
-      this._drawTrail(ctx, p, radius);
+    for (const tb of this.trailBalls) {
+      if (tb.appearTime <= this.currentTime) {
+        this._drawBall(ctx, tb.x, tb.y, '#000', tb.haloColor)
+      }
     }
   }
 
-  _drawBall(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    r: number
-  ) {
+  _drawBall(ctx: CanvasRenderingContext2D, x: number, y: number, fill: string, haloColor: string) {
+    const r = this.size / 2;
+    const xx = Math.round(x * 100) / 100;
+    const yy = Math.round(y * 100) / 100;
+
+    const glowWidth = 5; // 🌈 这里控制光晕的厚度（单位：像素）
+
     ctx.save();
+
+    // 动态变化的 hue，用于彩色流动效果
+    const glowColor = haloColor;
+    const innerStop = Math.max((r - glowWidth) / r, 0);
+    const innerRadius = r - glowWidth;
+
+    // 创建从内部黑色到外部彩色光晕的渐变
+    const gradient = ctx.createRadialGradient(xx, yy, innerRadius, xx, yy, r);
+    gradient.addColorStop(0, fill);
+    gradient.addColorStop(innerStop, fill); // 柔和过渡
+    gradient.addColorStop(1, glowColor);
+
+    // 绘制带有内边光晕的黑色球体
     ctx.beginPath();
-    const xx = Math.round(this.x * 100) / 100;
-    const yy = Math.round(this.y * 100) / 100;
     ctx.arc(xx, yy, r, 0, 2 * Math.PI);
-    ctx.fillStyle = '#000';
-    ctx.shadowColor = '#000';
-    ctx.shadowBlur = 12;
+    ctx.fillStyle = gradient;
     ctx.fill();
+
     ctx.restore();
   }
 
-  _drawTrail(
-    ctx: CanvasRenderingContext2D,
-    p: { x: number; y: number; life: number },
-    radius: number
-  ) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(255, 255, 255, ${p.life})`;
-    ctx.fill();
-    ctx.restore();
-  }
-
-  draw(ctx: CanvasRenderingContext2D, characterSize: number) {
+  drawBall(ctx: CanvasRenderingContext2D) {
     if (!this.skin || !this.frames || !this.sprite || !this.frames[this.state]) {
-      this._drawBall(ctx, this.x, this.y, characterSize / 2);
+      this.drawTrail(ctx);
+      this._drawBall(ctx, this.x, this.y, '#f0f0f0', getHaloColorByTime(this.currentTime));
       return;
     }
 
     const frame = this.frames[this.state][this.frameIndex];
     const { x: fx, y: fy, w: fw, h: fh } = frame;
 
-    const drawW = characterSize;
-    const drawH = characterSize;
+    const drawW = this.size;
+    const drawH = this.size;
 
     let dx = this.x;
     let dy = this.y;
@@ -277,6 +291,11 @@ export class RhythmBall {
     ctx.save();
     ctx.drawImage(this.sprite, fx, fy, fw, fh, dx, dy, drawW, drawH);
     ctx.restore();
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    this.drawTrail(ctx);
+    this.drawBall(ctx);
   }
 
   getPosition(): Vec2 {

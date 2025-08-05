@@ -17,7 +17,7 @@
 
 import { createGlowEffect } from '@/lib/rhythmBall/effects/glow';
 import { createConfettiEffect } from '@/lib/rhythmBall/effects/confetti';
-import type { RhythmPathPlanData, Segment, Vec2, Wall as BaseWall } from './RhythmPathPlanner';
+import type { RhythmPathPlanData, Vec2, Wall as BaseWall } from './RhythmPathPlanner';
 
 interface Wall extends BaseWall {
   effects: any[];
@@ -42,8 +42,8 @@ export class RhythmWalls {
   private walls: Wall[] = [];
   private path: Vec2[] = [];
   private segments: Segment[] = [];
-  private wallPattern?: CanvasPattern;
-  private bgPattern?: CanvasPattern;
+  public wallPattern?: CanvasPattern;
+  public bgPattern?: CanvasPattern;
 
   constructor(options: RhythmWallsOptions) {
     this.options = {

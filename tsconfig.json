@@ -13,13 +13,14 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    "noUnusedLocals": true,
     "plugins": [
       {
         "name": "next"
       }
     ],
     "paths": {
-      "@/scripts/*": ["./demo/midi-to-ball/scripts/*"],
+      "@/scripts/*": ["./demo1/midi-to-ball/scripts/*"],
       "@/*": ["./*"]
     }
   },
