@@ -79,6 +79,7 @@ export class RhythmWalls {
             dx,
             dy,
             direction,
+            size: this.options.characterSize / 10,
           })
         ]
       };
@@ -116,7 +117,7 @@ export class RhythmWalls {
     }
 
     if (this.options.debug) {
-      this.drawDebug(ctx);
+      // this.drawDebug(ctx);
     }
   }
 

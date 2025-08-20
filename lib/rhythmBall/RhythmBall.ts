@@ -65,6 +65,7 @@ export class RhythmBall {
   private frameTimer = 0;
   private autoReturnTimer = 0;
   private frameInterval = 100;
+  private trailSpace = 12; // 尾巴的密度
   private attackMap?: Record<string, string>;
 
   constructor(size: number, characterSkin: CharacterSkin | null = null) {
@@ -95,14 +96,14 @@ export class RhythmBall {
     this.trailBalls = this.generateTrails();
   }
 
-  generateTrails(density: number = 7): TrailBall[] {
+  generateTrails(): TrailBall[] {
     const trailBalls: TrailBall[] = []
 
     for (const seg of this.segments) {
       const dx = seg.endPos.x - seg.startPos.x
       const dy = seg.endPos.y - seg.startPos.y
       const distance = Math.sqrt(dx * dx + dy * dy)
-      const count = Math.floor(distance / density)
+      const count = Math.floor(distance / this.trailSpace)
 
       for (let i = 0; i <= count; i++) {
         const t = i / count
@@ -239,11 +240,10 @@ export class RhythmBall {
     const xx = Math.round(x * 100) / 100;
     const yy = Math.round(y * 100) / 100;
 
-    const glowWidth = 5; // 🌈 这里控制光晕的厚度（单位：像素）
-
     ctx.save();
 
     // 动态变化的 hue，用于彩色流动效果
+    const glowWidth = this.size / 8;
     const glowColor = haloColor;
     const innerStop = Math.max((r - glowWidth) / r, 0);
     const innerRadius = r - glowWidth;

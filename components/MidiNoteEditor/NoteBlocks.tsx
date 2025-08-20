@@ -2,10 +2,10 @@
 
 import { MidiPlayer } from '@/lib/MidiPlayer';
 import { midiToNoteName } from '@/lib/Midi';
-import { useStore } from '@/hooks/useStore';
 import React, { useState } from 'react';
 import { Eye, EyeOff, ArrowUp, ArrowDown, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useNotes } from '@/hooks/useStoreSlices';
 
 interface NoteBlocksProps {
   rowHeight: number;
@@ -19,7 +19,7 @@ export const NoteBlocks: React.FC<NoteBlocksProps> = React.memo(
       defaultValue: defaultNotes,
       value: notes,
       setValue: setNotes,
-    } = useStore<SerializedNote[]>('notes');
+    } = useNotes();
 
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
     const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);

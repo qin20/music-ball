@@ -16,7 +16,17 @@ export function midiToNames(midi: number) {
 }
 export function midiToNoteName(midi: number) {
   return NOTE_NAMES[midi % 12] + (Math.floor(midi / 12) - 1);
-};
+}
+export function noteNameToMidi(name: string): number {
+  name = name.toUpperCase();
+  const match = /^([A-G]#?)(-?\d+)$/.exec(name);
+  if (!match) throw new Error(`Invalid note name: ${name}`);
+  const [, note, octaveStr] = match;
+  const octave = parseInt(octaveStr, 10);
+  const semitone = NOTE_NAMES.indexOf(note);
+  if (semitone < 0) throw new Error(`Unknown note: ${note}`);
+  return (octave + 1) * 12 + semitone;
+}
 /* =========================================================
  *           📅  Parse & Serialize MIDI  Tracks
  * ========================================================= */
@@ -32,16 +42,45 @@ export function serializeNotes(notes: Track['notes']): SerializedNote[] {
 }
 
 export function getMainTrackIndex(tracks: Track[]): number {
+  const melodyRange = [50, 90]; // 主旋律常见音高范围
+  const centerPitch = 64;
+
   return tracks
-    .map((t,i)=>({
-      i,
-      score: !t.notes.length
-        ? -Infinity
-        : t.notes.length*10 - Math.abs(
-            t.notes.reduce((s,n)=>s+n.midi,0)/t.notes.length - 64
-          )
-    }))
-    .sort((a,b)=>b.score-a.score)[0].i
+    .map((t, i) => {
+      const notes = t.notes;
+
+      if (!notes.length) return { i, score: -Infinity };
+
+      const avgPitch = notes.reduce((s, n) => s + n.midi, 0) / notes.length;
+      const lowPitchRatio = notes.filter(n => n.midi < melodyRange[0]).length / notes.length;
+      const outOfRangeRatio = notes.filter(n => n.midi < melodyRange[0] || n.midi > melodyRange[1]).length / notes.length;
+
+      const isPercussion = t.channel === 9; // channel 10 is percussion
+
+      const score =
+        isPercussion
+          ? -Infinity
+          : notes.length * 10
+            - Math.abs(avgPitch - centerPitch) * 2
+            - lowPitchRatio * 50
+            - outOfRangeRatio * 30;
+
+      return { i, score };
+    })
+    .sort((a, b) => b.score - a.score)[0].i;
+}
+
+export function sortTracksByAvgPitch(tracks: Track[]) {
+  return tracks
+    .map((track, index) => {
+      const notes = track.notes;
+      const avgPitch =
+        notes.length === 0
+          ? -Infinity
+          : notes.reduce((sum, n) => sum + n.midi, 0) / notes.length;
+      return { index, track, avgPitch };
+    })
+    .sort((a, b) => b.avgPitch - a.avgPitch);
 }
 
 /* =========================================================
@@ -51,22 +90,41 @@ export function getMainTrackIndex(tracks: Track[]): number {
 export async function getMainTrack(input: File|ArrayBuffer) {
   const buffer = input instanceof File ? await input.arrayBuffer() : input
   const midi =  new Midi(buffer)
-  const tracks = midi.tracks;
-  return tracks[getMainTrackIndex(tracks)];
+  const tracks = sortTracksByAvgPitch(midi.tracks);
+  console.log(tracks);
+  return tracks[0].track;
 }
 
-/**
- * 获取小球动画事件和音乐事件
- * @param tracks
- * @param disabledIndexes
- * @returns
- */
-export function serializeTrack(track: Track): SerializedNote[] {
-  // eslint-disable-next-line
-  let notes = serializeNotes(track.notes)
-  // notes = notes.slice(0, 15)
-  console.log(notes);
-  return notes;
+export function sliceNotesByTime(
+  notes: SerializedNote[],
+  startTime: Seconds = 0,
+  endTime: Seconds = Infinity
+): SerializedNote[] {
+  return notes.filter(n => {
+    const noteEnd = n.time + n.duration;
+    return (
+      noteEnd > startTime &&               // 有部分落在开始之后
+      (endTime === undefined || n.time < endTime) // 有部分在结束之前
+    );
+  });
+}
+
+
+export function scaleNoteTimings(notes: SerializedNote[], factor: number): SerializedNote[] {
+  const digists = 10e3;
+  return notes.map(note => ({
+    ...note,
+    time: Math.floor(note.time * factor * digists) / digists,
+    duration: Math.floor(note.duration * factor * digists) / digists,
+  }));
+}
+
+export function deleteNotesBelow(
+  notes: SerializedNote[],
+  thresholdName: string
+): SerializedNote[] {
+  const threshold = noteNameToMidi(thresholdName);
+  return notes.filter(n => n.midi > threshold);
 }
 
 export function compressNotes(notes: SerializedNote[], minDelta = 0): SerializedNote[] {
@@ -142,9 +200,18 @@ export function computeMidiCenter(notes: SerializedNote[]): number {
 
 export function getNoteColor(midi: number, centerMidi: number = 60): string {
   const NOTE_HUES: Record<string, number> = {
-    'C': 0, 'C#': 150, 'D': 30, 'D#': 180,
-    'E': 60, 'F': 210, 'F#': 90, 'G': 240,
-    'G#': 120, 'A': 270, 'A#': 330, 'B': 300,
+    'C': 40,   // 橙黄
+    'C#': 70,  // 黄
+    'D': 100,  // 黄绿
+    'D#': 140, // 绿
+    'E': 170,  // 青绿
+    'F': 200,  // 蓝绿
+    'F#': 230, // 蓝
+    'G': 260,  // 靛蓝
+    'G#': 280, // 紫
+    'A': 300,  // 紫红（偏紫，不算红）
+    'A#': 320, // 暗紫（接近红，但仍然带蓝调）
+    'B': 50,   // 橙
   };
 
   const noteName = midiToNoteName(midi);
@@ -182,4 +249,17 @@ export function alignNotesStartTime(notes: SerializedNote[], startTime: number =
 
   const delta = startTime - notes[0].time;
   return shiftNotesTime(notes, delta);
+}
+
+/**
+ * 获取小球动画事件和音乐事件
+ * @param tracks
+ * @param disabledIndexes
+ * @returns
+ */
+export function serializeTrack(track: Track): SerializedNote[] {
+  let notes = sliceNotesByTime(serializeNotes(track.notes), 68, 150);
+  notes = scaleNoteTimings(notes, 1); // 加速、减速
+  notes = deleteNotesBelow(notes, 'b3'); // 删除阈值以下的节点
+  return notes;
 }

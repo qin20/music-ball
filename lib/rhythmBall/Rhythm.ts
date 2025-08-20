@@ -51,8 +51,8 @@ export class Rhythm {
     this.ball = new RhythmBall(this.options.characterSize, options.characterSkin ?? null);
 
     this.camera = new Camera(this.canvas, {
-      safeMarginX: this.canvas.width * 0.15,
-      safeMarginY: this.canvas.height * 0.15,
+      safeMarginX: this.canvas.width * 0.3,
+      safeMarginY: this.canvas.height * 0.3,
     });
 
     this.resizer = new CanvasResizer(this.canvas);
@@ -60,7 +60,7 @@ export class Rhythm {
 
   setResolution(mode: string) {
     this.resizer.enableAutoResize({
-      mode: mode === '9:16' ? [9, 16] : [16, 9],
+      mode,
       getContainerSize: () => ({
         width: this.canvas?.parentElement?.offsetWidth || 0,
         height: this.canvas?.parentElement?.offsetHeight || 0,
@@ -125,6 +125,6 @@ export class Rhythm {
     this.walls.draw(ctx);
     this.ball.draw(ctx);
 
-    this.camera.drawSafeMargin(ctx);
+    // this.camera.drawSafeMargin(ctx);
   }
 }

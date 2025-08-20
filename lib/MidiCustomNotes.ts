@@ -1,11 +1,11 @@
 import { midiToNoteName } from "./Midi";
 
-export function createGlissandoIntro(count: number = 28): SerializedNote[] {
+export function createGlissandoIntro(transpose: number = 0, count: number = 28): SerializedNote[] {
   const notes: SerializedNote[] = [];
   const direction = Math.random() > 0.5 ? 'H' : 'V';
 
-  const slowMidis = [70, 71, 72];
-  const slowTimings = [0.0, 0.6, 1.1];
+  const slowMidis = [68, 69, 70].map((mid) => mid + transpose);
+  const slowTimings = [0.0, 0.4, 0.6];
   const slowDurations = [1, 0.8, 0.65];
 
   for (let i = 0; i < slowMidis.length; i++) {

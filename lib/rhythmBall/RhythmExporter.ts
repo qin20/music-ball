@@ -1,3 +1,4 @@
+import JSZip from 'jszip';
 import { MidiPlayer } from '../MidiPlayer';
 import { Rhythm } from './Rhythm';
 import {
@@ -9,12 +10,15 @@ import {
   QUALITY_HIGH,
   Mp4OutputFormat,
 } from 'mediabunny';
+import { CameraModes } from './Camera';
+
+export interface RhythmExporterResult { ext: string; blob: Blob; }
 
 export interface RhythmExporterOptions {
   fps: number;
   quality: Quality;
-  width: number;
-  height: number;
+  aspectRatio: [number, number];
+  aspectRatioHeight: number;
   onProgress?: (progress: number) => void;
 }
 
@@ -25,14 +29,15 @@ export class RhythmExporter {
   private totalFrames: number;
   private offscreenCanvas!: HTMLCanvasElement;
   private _offscreenRhythm?: Rhythm;
+  private width: number = 0;
+  private height: number = 0;
 
   constructor(rhythm: Rhythm, options: RhythmExporterOptions) {
-    this.rhythm = rhythm;
-
+    const width = options.aspectRatio[0] / options.aspectRatio[1] * options.aspectRatioHeight;
+    const height = options.aspectRatioHeight;
     const offscreenCanvas = document.createElement('canvas');
-    offscreenCanvas.width = options.width;
-    offscreenCanvas.height = options.height;
-    this.offscreenCanvas = offscreenCanvas;
+    offscreenCanvas.width = width;
+    offscreenCanvas.height = height;
 
     const duration = (rhythm.data.segments.at(-1)?.endTime || 0) + 2;
     const fps = options.fps ?? 60;
@@ -44,6 +49,10 @@ export class RhythmExporter {
 
     this.msPerFrame = 1000 / fps;
     this.totalFrames = Math.ceil(duration * fps) + 1;
+    this.rhythm = rhythm;
+    this.offscreenCanvas = offscreenCanvas;
+    this.width = width;
+    this.height = height;
 
     console.log(`正在导出，duration: ${duration}s, fps: ${fps}, frames: ${this.totalFrames}`)
   }
@@ -64,6 +73,7 @@ export class RhythmExporter {
     if (this.rhythm.walls.wallPattern) {
       offscreen.setBgPattern(this.rhythm.walls.wallPattern);
     }
+    offscreen.camera.setMode(CameraModes.FOLLOW);
     await offscreen.refresh();
     return offscreen;
   }
@@ -89,10 +99,12 @@ export class RhythmExporter {
 
     // 封装调度逻辑：使用 requestIdleCallback，如果没有就用 setTimeout
     const schedule = (fn: () => void) => {
-      if ('requestIdleCallback' in window) {
-        (window as any).requestIdleCallback(fn, { timeout: 100 }); // 防止低优先级任务一直被饿死
+      if (typeof document !== 'undefined' && document.hidden) {
+        setTimeout(fn, 20); // 后台时保证任务继续执行
+      } else if ('requestIdleCallback' in window) {
+        (window as any).requestIdleCallback(fn, { timeout: 100 });
       } else {
-        setTimeout(fn, 10); // 降级处理，10ms 节流
+        setTimeout(fn, 10); // 默认降级处理
       }
     };
 
@@ -115,7 +127,24 @@ export class RhythmExporter {
     });
   }
 
-  public async export(): Promise<Blob> {
+  public async exportFrames(): Promise<RhythmExporterResult> {
+    const zip = new JSZip();
+
+    await this.processRenderedFrames(async (canvas, i) => {
+      const blob = await new Promise<Blob>((resolve) =>
+        canvas.toBlob((b) => resolve(b!), 'image/webp', 1.0)
+      );
+      const arrayBuffer = await blob.arrayBuffer();
+      zip.file(`frame_${String(i).padStart(4, '0')}.webp`, arrayBuffer);
+    });
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const ext = 'zip';
+
+    return { ext, blob };
+  }
+
+  public async export(): Promise<RhythmExporterResult> {
     const { fps, quality } = this.options;
 
     // 创建输出容器（WebM格式，写入内存）
@@ -153,7 +182,10 @@ export class RhythmExporter {
 
     const buffer = output.target.buffer;
     if (!buffer) throw new Error('Export failed: buffer is null');
-    return new Blob([buffer], { type: 'video/mp4' });
+    return {
+      blob: new Blob([buffer], { type: 'video/mp4' }),
+      ext: 'mp4',
+    }
   }
 
   public dispose(): void {

@@ -7,6 +7,7 @@ export interface MidiSynthParams {
   harmonicity: number;
   modulationIndex: number;
   attack: number;
+  sustain: number;
   decay: number;
   release: number;
 }
@@ -29,12 +30,13 @@ export type MidiPlayerConfigEvents = {
 const defaultConfig: MidiPlayerConfig = {
   notes: [],
   synthType: 'fmsynth',
-  volume: 0,
-  transpose: 0,
+  volume: 1,
+  transpose: 12,
   params: {
     harmonicity: 10,
     modulationIndex: 1,
     attack: 0.01,
+    sustain: 0.2,
     decay: 1,
     release: 0.3,
   }
@@ -50,6 +52,8 @@ export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
   constructor(public config: MidiPlayerConfig) {
     super();
     this.config = { ...defaultConfig, ...config };
+    this.synth = this.createSynth(this.config);
+    this.part = this.createPart(this.synth, this.config);
     this.updateConfig(this.config); // ✅ 初始化构建 synth 和 part
   }
 
@@ -115,7 +119,7 @@ export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
     if (this.rafId) cancelAnimationFrame(this.rafId);
   }
 
-  playNote(midi: number, duration: Seconds = 250, velocity: number = 0.8): void {
+  playNote(midi: number, duration: Seconds = 0.2, velocity: number = 0.8): void {
     const note = Tone.Frequency(midi + this.config.transpose, 'midi').toNote();
     this.synth.triggerAttackRelease(note, duration, undefined, velocity);
   }
@@ -156,22 +160,106 @@ export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
   }
 
   updateConfig(config: Partial<MidiPlayerConfig>) {
+    const { synthType, transpose, notes } = this.config;
     const conf = { ...this.config, ...config };
-    if (!this.synth || conf.synthType !== this.config.synthType) {
-      this.synth?.dispose();
-      this.synth = this.createSynth(this.config);
-    }
-    this.updateSynth(this.synth, conf);
-
-    const shouldResetPart = !!config.notes || (typeof config.transpose === 'number' && config.transpose !== this.config.transpose);
-    if (shouldResetPart) {
+    const shouldReCreate = conf.synthType !== synthType
+                      || (conf.transpose !== transpose)
+                      || (conf.notes != notes)
+    if (shouldReCreate) {
       this.pause();
       this.seek(0);
+
+      this.synth?.dispose();
+      this.synth = this.createSynth(conf);
+      this.updateSynth(this.synth, conf);
+
       this.part?.dispose();
       this.part = this.createPart(this.synth, conf);
+    } else {
+      this.updateSynth(this.synth, conf);
     }
 
     this.config = conf;
+  }
+
+  createImpactSynth(): Tone.PolySynth {
+    const reverb = new Tone.Reverb({
+      decay: 2.5,       // 混响尾部
+      preDelay: 0.01,   // 撞击反射略滞后
+      wet: 0.5          // 混响比例
+    }).toDestination();
+
+    const synth = new Tone.PolySynth(Tone.AMSynth, {
+      volume: -8,
+      maxPolyphony: 10,
+      options: {
+        harmonicity: 3,
+        modulationIndex: 1,
+        oscillator: { type: 'square' },
+        envelope: {
+          attack: 0.001,   // 瞬间响起
+          decay: 0.3,      // 撞击后的快速衰减
+          sustain: 0.1,    // 轻微持续
+          release: 2.0     // 缓慢消失
+        },
+        modulation: { type: 'sine' },
+        modulationEnvelope: {
+          attack: 0.001,
+          decay: 0.2,
+          sustain: 0.1,
+          release: 0.5
+        }
+      }
+    }).connect(reverb);
+
+    return synth;
+  }
+
+  createImpactSynthHybrid() {
+    const reverb = new Tone.Reverb({
+      decay: 2.5,
+      preDelay: 0.01,
+      wet: 0.4
+    }).toDestination();
+
+    // 叮 - 清脆金属感
+    const amSynth = new Tone.AMSynth({
+      harmonicity: 2.5,
+      modulationIndex: 1.5,
+      oscillator: { type: 'triangle' },
+      envelope: {
+        attack: 0.001,
+        decay: 0.3,
+        sustain: 0.1,
+        release: 2.0
+      },
+      modulationEnvelope: {
+        attack: 0.001,
+        decay: 0.2,
+        sustain: 0.1,
+        release: 0.5
+      }
+    }).connect(reverb);
+
+    // 嘭 - 鼓膜低频感
+    const membrane = new Tone.MembraneSynth({
+      pitchDecay: 0.01,
+      octaves: 6,
+      oscillator: { type: 'sine' },
+      envelope: {
+        attack: 0.001,
+        decay: 0.4,
+        sustain: 0,
+        release: 1.2
+      }
+    }).connect(reverb);
+
+    return {
+      trigger(note: string | number, time = Tone.now(), velocity = 1) {
+        amSynth.triggerAttackRelease(note, '1n', time, velocity);
+        membrane.triggerAttackRelease(note, '1n', time, velocity);
+      }
+    };
   }
 
   createSynth(config: MidiPlayerConfig) {
@@ -190,11 +278,10 @@ export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
       envelope: {
         attack: config.params.attack,
         decay: config.params.decay,
-        sustain: 0,
+        sustain: config.params.sustain,
         release: config.params.release
       }
     });
-
     synth.volume.value = config.volume;
   }
 
@@ -202,39 +289,76 @@ export class MidiPlayer extends withEventEmitter<MidiPlayerConfigEvents>() {
     const events = this.prepareEvents(config.notes ?? []);
     const part = new Tone.Part((time, ev) => {
       if (!ev.notes?.length) return;
-      const notes = ev.notes.map(n =>
-        Tone.Frequency(n.midi + config.transpose, 'midi').toNote()
+
+      const threshold = 60;
+      const transposed = ev.notes.map(n => ({
+        ...n,
+        effectiveMidi: n.midi + config.transpose
+      }));
+
+      let filtered = transposed.filter(n => n.effectiveMidi >= threshold);
+
+      // 如果全部被过滤掉，则保留最高音
+      if (filtered.length === 0) {
+        const maxNote = transposed.reduce((a, b) =>
+          a.effectiveMidi > b.effectiveMidi ? a : b
+        );
+        filtered = [maxNote];
+      }
+
+      const notes = filtered.map(n =>
+        Tone.Frequency(n.effectiveMidi, 'midi').toNote()
       );
+
       synth.triggerAttackRelease(notes, ev.duration, time, ev.velocity);
     }, events).start(0);
+
     part.loop = false;
     return part;
   }
 
-  prepareEvents(notes: SerializedNote[]) {
-    const eventMap = new Map<number, SerializedNote[]>();
-    notes.forEach(n => {
-      if (n.disabled) return; // ✅ 跳过禁用音符
-      if (!eventMap.has(n.time)) eventMap.set(n.time, []);
-      eventMap.get(n.time)!.push(n);
-    });
-
+  prepareEvents(notes: SerializedNote[], tolerance: number = 0.05) {
     const constantDuration = 0.3;
-    const constantVelocity = 0.8;
-    const events = Array.from(eventMap.entries()).map(([time, notes]) => ({
-      time: time,
-      notes,
-      duration: constantDuration,
-      velocity: constantVelocity,
-      // duration: Math.max(...notes.map(n => n.duration)),
-      // velocity: Math.max(...notes.map(n => n._note?.velocity || 1), 0.1),
-    })).sort((a, b) => a.time - b.time);
+    const constantVelocity = 1;
 
+    // 排序所有 note
+    const sortedNotes = notes
+      .filter(n => !n.disabled)
+      .sort((a, b) => a.time - b.time);
+
+    const events: {
+      time: number;
+      notes: SerializedNote[];
+      duration: number;
+      velocity: number;
+    }[] = [];
+
+    for (const note of sortedNotes) {
+      const lastEvent = events.at(-1);
+      if (
+        lastEvent &&
+        Math.abs(note.time - lastEvent.time) <= tolerance
+      ) {
+        // 合并到最后一个事件
+        lastEvent.notes.push(note);
+      } else {
+        // 新建事件
+        events.push({
+          time: note.time,
+          notes: [note],
+          duration: constantDuration,
+          velocity: constantVelocity,
+        });
+      }
+    }
+
+    // 计算总时长
     const last = events.at(-1);
     this.totalDuration = last ? last.time + last.duration : 0;
 
     return events;
   }
+
 
   async getBuffer(): Promise<AudioBuffer> {
     const events = this.prepareEvents(this.config.notes ?? []);

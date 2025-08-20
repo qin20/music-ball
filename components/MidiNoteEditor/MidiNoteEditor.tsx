@@ -8,7 +8,7 @@ import { PianoKeys } from './PianoKeys';
 import { TimeScale } from './TimeScale';
 import { CursorLineInside, FixedTrianglePointer } from './TimeCursor';
 import { EditorToolbar } from './EditorToolbar';
-import { useStore } from '@/hooks/useStore';
+import { useNotes } from '@/hooks/useStoreSlices';
 
 const rowHeight = 20;
 const pxPerSec = 200;
@@ -20,7 +20,7 @@ interface MidiNoteEditorProps {
 export const MidiNoteEditor: React.FC<MidiNoteEditorProps> = ({
   onTimeChange,
 }) => {
-  const { value: notes } = useStore<SerializedNote[]>('notes');
+  const { value: notes } = useNotes();
   const [currentTime, setCurrentTime] = useState(0);
   const isDraggingRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -97,7 +97,7 @@ export const MidiNoteEditor: React.FC<MidiNoteEditorProps> = ({
             className="sticky left-0 z-[100] w-[60px] shrink-0 bg-white border-r border-gray-300"
             style={{ height: contentHeight + 20 }}
           >
-            <PianoKeys pitches={pitches} rowHeight={rowHeight} onClick={(midi) => MidiPlayer.get().playNote(midi, 300)} />
+            <PianoKeys pitches={pitches} rowHeight={rowHeight} onClick={(midi) => MidiPlayer.get().playNote(midi, 0.2)} />
           </div>
 
           {/* 🎵 note 区域 */}

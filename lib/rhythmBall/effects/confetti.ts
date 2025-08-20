@@ -37,6 +37,7 @@ export interface ConfettiEffectOptions {
   dy: number;
   direction: ConfettiDirection;
   particleCount?: number;
+  size?: number;
   duration?: number;
 }
 
@@ -51,6 +52,7 @@ export function createConfettiEffect({
   dy,
   direction,
   particleCount = 10,
+  size = 4,
   duration = 1
 }: ConfettiEffectOptions): ConfettiEffect {
   const baseAngle =
@@ -67,7 +69,7 @@ export function createConfettiEffect({
 
   const seeds: ConfettiSeed[] = Array.from({ length: particleCount }, (_, i) => {
     const angle = baseAngle + (Math.random() - 0.5) * spread;
-    const speed = (1 + Math.random()) * 80;
+    const speed = (1 + Math.random()) * size * 15;
 
     const t = particleCount === 1 ? 0.5 : i / (particleCount - 1);
     const originX = wall.start.x * (1 - t) + wall.end.x * t;
@@ -81,7 +83,7 @@ export function createConfettiEffect({
       y0: originY,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      size: 4 + Math.random() * 4,
+      size: size + Math.random() * size,
       shape: shapes[Math.floor(Math.random() * shapes.length)],
       angle0,
       angularVelocity,

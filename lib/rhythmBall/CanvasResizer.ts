@@ -55,7 +55,7 @@ export class CanvasResizer {
     onResize,
     matchPixelRatio = true
   }: {
-    mode?: 'fill' | [number, number];
+    mode?: string | [number, number];
     getContainerSize: () => { width: number; height: number };
     onResize?: (canvasWidth: number, canvasHeight: number, containerWidth: number, containerHeight: number) => void;
     matchPixelRatio?: boolean;
@@ -70,6 +70,9 @@ export class CanvasResizer {
       const { width, height } = getContainerSize();
       if (mode === 'fill') {
         this.fillContainer(width, height, matchPixelRatio);
+      } else if (typeof mode === 'string' && mode.indexOf(':') > 0) {
+        const newMode = mode.split(':').map((n) => Number(n));
+        this.setAspectRatio(newMode[0], newMode[1], width, height);
       } else if (Array.isArray(mode) && mode.length === 2) {
         this.setAspectRatio(mode[0], mode[1], width, height);
       } else {

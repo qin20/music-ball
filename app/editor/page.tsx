@@ -2,16 +2,14 @@
 
 import { MouseEventHandler, useEffect, useRef, useState } from 'react';
 import { CanvasResizer } from '@/lib/rhythmBall/CanvasResizer';
-import { useStore } from '@/hooks/useStore';
 import { MidiPlayer, MidiPlayerConfigEvents } from '@/lib/MidiPlayer';
 import { MidiNoteEditor } from '@/components/MidiNoteEditor/MidiNoteEditor';
 import { RightSidebar } from '@/components/RightSidebar';
 import { Rhythm } from '@/lib/rhythmBall/Rhythm';
 import { TextureManager } from '@/lib/rhythmBall/TextureManager';
 import { compressNotes } from '@/lib/Midi';
-import { ResolutionValue } from '@/components/MidiNoteEditor/ResolutionSelector';
-import { CameraMode, CameraModes } from '@/lib/rhythmBall/Camera';
 import { useRhythmInstance } from '@/hooks/useRhythmInstance';
+import { useAspectRatio, useCameraMode, useNotes } from '@/hooks/useStoreSlices';
 
 
 /**
@@ -36,18 +34,16 @@ export function calculateRecommendedSpeedByDistance(
     }
   }
 
-  console.log(minDelta, minDistance, minDelta > 0 ? minDistance / minDelta : 100);
+  // console.log(minDelta, minDistance, minDelta > 0 ? minDistance / minDelta : 100);
   return minDelta > 0 ? minDistance / minDelta : 100;
 }
 
 export default function EditorPage() {
-  const { value: notes, enableShortcuts, disableShortcuts } = useStore<SerializedNote[]>('notes', []);
-  const { value: resolution } = useStore<ResolutionValue>('resolution', '9:16');
-  const { value: cameraMode } = useStore<CameraMode>('cameraMode', CameraModes.ALL);
+  const { value: notes, enableShortcuts, disableShortcuts } = useNotes();
+  const { value: aspectRatio } = useAspectRatio();
+  const { value: cameraMode } = useCameraMode();
 
   const [editorHeight, setEditorHeight] = useState(240);
-  const [speed, setSpeed] = useState(0.25);
-  const [characterSize, setCharacterSize] = useState(30);
 
   const { get: getRhythm, refresh, set: setRhythm } = useRhythmInstance();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -74,7 +70,7 @@ export default function EditorPage() {
       resizerRef.current = new CanvasResizer(canvas);
     }
     resizerRef.current?.enableAutoResize({
-      mode: resolution === '9:16' ? [9, 16] : [16, 9],
+      mode: aspectRatio,
       getContainerSize: () => ({
         width: canvas?.parentElement?.offsetWidth || 0,
         height: canvas?.parentElement?.offsetHeight || 0,
@@ -86,7 +82,7 @@ export default function EditorPage() {
     });
 
     return () => resizerRef.current?.disableAutoResize();
-  }, [resolution, getRhythm]);
+  }, [aspectRatio, getRhythm]);
 
   useEffect(() => {
     const run = async () => {
@@ -94,10 +90,10 @@ export default function EditorPage() {
       if (!_compressNotes || !_compressNotes.length || !canvasRef.current) {
         return;
       }
-      console.log(_compressNotes);
-      const characterSize = 30;
+      // console.log(_compressNotes);
+      const characterSize = 80;
       const rhythm = new Rhythm(canvasRef.current, _compressNotes, {
-        background: '#fff',
+        background: '#777',
         characterSize,
         characterSkin: null,
         pathWidth: characterSize,
@@ -109,9 +105,9 @@ export default function EditorPage() {
       });
       setRhythm(rhythm);
       await refresh();
-      TextureManager.loadPattern('/assets/textures/bg.png').then((pattern) => {
-        getRhythm()?.setBgPattern(pattern); // 动态切换
-      });
+      // TextureManager.loadPattern('/assets/textures/wall3.jpg').then((pattern) => {
+      //   getRhythm()?.setBgPattern(pattern); // 动态切换
+      // });
     };
 
     run();
@@ -156,12 +152,7 @@ export default function EditorPage() {
           </div>
         </div>
 
-        <RightSidebar
-          speed={speed}
-          onSpeedChange={setSpeed}
-          characterSize={characterSize}
-          onCharacterSizeChange={setCharacterSize}
-        />
+        <RightSidebar />
       </div>
 
       {/* MIDI 编辑器（带可拖动顶部） */}

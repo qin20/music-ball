@@ -132,8 +132,6 @@ export class RhythmPathPlanner {
     this.distances = config.notes.map((n, i) =>
       i === 0 ? n.time : n.time - config.notes[i - 1].time
     ).map(dt => ({ dt,  dis: dt * config.speed }));
-
-    console.log(this.distances);
   }
 
   getInitBallDirection() {

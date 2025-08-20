@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from 'react';
 import { MidiPlayer } from '@/lib/MidiPlayer';
-import { useStore } from '@/hooks/useStore';
 import {
   Play,
   Pause,
@@ -16,12 +15,12 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ResolutionSelector } from './ResolutionSelector';
-import { CameraMode, CameraModes } from '@/lib/rhythmBall/Camera';
+import { CameraModes } from '@/lib/rhythmBall/Camera';
 import { useRhythmInstance } from '@/hooks/useRhythmInstance';
 import { RhythmExporter } from '@/lib/rhythmBall/RhythmExporter';
 import { downloadBlob } from '@/lib/rhythmBall/utils/downloadBlob';
-import { QUALITY_VERY_LOW } from 'mediabunny';
-
+import { QUALITY_MEDIUM } from 'mediabunny';
+import { useAspectRatio, useCameraMode, useNotes } from '@/hooks/useStoreSlices';
 
 interface EditorToolbarProps {
   currentTime: number;
@@ -32,8 +31,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   currentTime,
   totalDuration,
 }) => {
-  const { undo, redo, canUndo, canRedo } = useStore<SerializedNote[]>('notes');
-  const { value: cameraMode, setValue: setCameraMode } = useStore<CameraMode>('cameraMode', CameraModes.ALL);
+  const { undo, redo, canUndo, canRedo } = useNotes();
+  const { value: cameraMode, setValue: setCameraMode } = useCameraMode();
+  const { value: aspectRatio } = useAspectRatio();
   const { refresh, loading, get: getRhythm } = useRhythmInstance();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -57,20 +57,18 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     const rhythm = getRhythm();
     if (!rhythm) return;
     setIsExporting(true);
-    console.log('导出视频时长: ', rhythm.data.segments.at(-1)?.endTime);
     const exporter = new RhythmExporter(rhythm, {
-      quality: QUALITY_VERY_LOW,
-      width: 1080,
-      height: 1920,
+      quality: QUALITY_MEDIUM,
+      aspectRatio,
+      aspectRatioHeight: 1080,
       fps: 60,
       onProgress: (progress) => {
         setExportProgress(progress);
-        // console.log(`Export progress: ${(progress * 100).toFixed(1)}%`);
       },
     });
-    const webmBlob = await exporter.export();
+    const result = await exporter.export();
     exporter.dispose();
-    downloadBlob(webmBlob, 'output.mp4');
+    downloadBlob(result.blob, `output.${result.ext}`);
     setIsExporting(false);
   };
 

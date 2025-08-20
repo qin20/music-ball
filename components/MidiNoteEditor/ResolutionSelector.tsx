@@ -11,9 +11,9 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select';
-import { useStore } from '@/hooks/useStore';  // ✅ 你的 hook 路径
+import { useAspectRatio } from '@/hooks/useStoreSlices';
 
-export type ResolutionValue = '16:9' | '9:16' | '1:1' | '4:3' | '21:9';
+export type ResolutionValue = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
 
 const resolutionOptions: {
   value: ResolutionValue;
@@ -40,6 +40,11 @@ const resolutionOptions: {
     label: '4:3 标准屏',
     icon: <div className="w-5 h-4 border border-gray-400" />,
   },
+   {
+    value: '3:4',
+    label: '3:4 标准竖屏',
+    icon: <div className="w-5 h-4 border border-gray-400" />,
+  },
   {
     value: '21:9',
     label: '21:9 超宽屏',
@@ -48,12 +53,13 @@ const resolutionOptions: {
 ];
 
 export const ResolutionSelector: React.FC = () => {
-  const { value: resolution, setValue } = useStore<ResolutionValue>('resolution', '9:16');
+  const { value: aspectRatio, setValue: setAspectRatio } = useAspectRatio();
 
-  const selected = resolutionOptions.find((opt) => opt.value === resolution)!;
+  const value = aspectRatio.join(':');
+  const selected = resolutionOptions.find((opt) => opt.value === value)!;
 
   return (
-    <Select value={resolution} onValueChange={(v) => setValue(v as ResolutionValue)}>
+    <Select value={value} onValueChange={(v) => setAspectRatio(v.split(':').map((n) => Number(n)) as [number, number])}>
       <SelectTrigger className="w-24 h-10 px-2 text-xs justify-center" title="画面比例">
         {selected.label}
       </SelectTrigger>

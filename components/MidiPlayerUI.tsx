@@ -7,29 +7,24 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { alignNotesStartTime, concatNotes, getMainTrack, serializeTrack } from '@/lib/Midi'
-import { useStore } from '@/hooks/useStore';
 import { createGlissandoIntro } from '@/lib/MidiCustomNotes';
 import { downloadBlob } from '@/lib/rhythmBall/utils/downloadBlob';
+import { useNotes } from '@/hooks/useStoreSlices';
+import { MidiPlayerPresets } from '@/lib/MidiPlayerPresets';
 
 const synthTypes: { label: string; value: SynthType }[] = [
   { label: 'FMSynth（金属水杯）', value: 'fmsynth' },
   { label: 'AMSynth（柔和调幅）', value: 'amsynth' },
 ];
 
-const defaultValues = {
-  transpose: 0,
-  harmonicity: 10,
-  modulationIndex: 1,
-  attack: 0.015,
-  decay: 3,
-  release: 0.05
-};
+const defaultValues = MidiPlayerPresets.default_normal;
 
 const paramMeta = {
   transpose: { min: -24, max: 24 },
   harmonicity: { min: 0.1, max: 20 },
   modulationIndex: { min: 0, max: 20 },
   attack: { min: 0.001, max: 1 },
+  sustain: { min: 0, max: 1 },
   decay: { min: 0.01, max: 3 },
   release: { min: 0.01, max: 3 }
 } as const;
@@ -46,7 +41,7 @@ export default function MidiPlayerUI() {
   const {
     value: notes,
     setDefaultValue: setNotes,
-  } = useStore<SerializedNote[]>('notes');
+  } = useNotes();
   const transpose = params['transpose'];
 
   // 只在 notes 或 transpose 改变时，才更新完整播放结构
@@ -98,12 +93,11 @@ export default function MidiPlayerUI() {
     const mainNotes = serializeTrack(mainTrack);
 
     // 拼接 intro + main
-    const _mainNotes = alignNotesStartTime(mainNotes, 2);
+    const _mainNotes = alignNotesStartTime(mainNotes, 1.5);
     _mainNotes.map((note) => {
       note.duration = 0.3;
     });
-    // const finalNotes = concatNotes(createGlissandoIntro(), _mainNotes);
-    const finalNotes = concatNotes(createGlissandoIntro());
+    const finalNotes = concatNotes(createGlissandoIntro(-transpose), _mainNotes);
 
     setNotes(finalNotes);
   };
@@ -187,10 +181,11 @@ export default function MidiPlayerUI() {
           const typedKey = key as ParamKey;
           const value = params[typedKey];
           const titleMap = {
-            transpose: '音高移调（transpose）',
+            transpose: '音高移调',
             harmonicity: '音色亮度比',
             modulationIndex: '调制强度',
             attack: '起音时间',
+            sustain: '延音强度',
             decay: '衰减时间',
             release: '释放时间'
           };
@@ -199,6 +194,7 @@ export default function MidiPlayerUI() {
             harmonicity: '决定音色明亮或柔和，数值越高越亮',
             modulationIndex: '控制音色复杂度，越高越丰富',
             attack: '声音从无到强的时间，越长越柔',
+            sustain: '值越大越拖音，值越小越干脆',
             decay: '音量从峰值衰减的时间，影响音头感',
             release: '松开后声音淡出的时间，越长拖尾越明显'
           };
