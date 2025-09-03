@@ -1,3 +1,5 @@
+<img width="810" height="1080" alt="output (14) mp4_20250903_191537 544" src="https://github.com/user-attachments/assets/b25f024b-4984-4b27-a1e6-2df1d4c367e4" />
+
 # 🎶 音乐小球短视频项目详细介绍
 
 ## 🎯 项目定位与用途
